@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { useCallback, useEffect, useRef, useState, useMemo } from "react"
+import { toast } from "sonner"
 import {
   useEditor,
   PIXELS_PER_SECOND,
@@ -66,6 +67,8 @@ function getToolDescription(toolName: string, input: Record<string, unknown>): s
       return `Apply ${input.effect} effect`
     case "addMediaToTimeline":
       return `Add media to track ${input.trackId}${input.startTimeSeconds !== undefined ? ` at ${input.startTimeSeconds}s` : ""}`
+    case "createMorphTransition":
+      return `Create ${input.durationSeconds}s morph transition`
     default:
       return toolName
   }
@@ -234,7 +237,7 @@ export function useVideoAgent() {
               smoothness: 0.1,
               spill: 0.3,
             }
-            
+
             editor.updateClip(action.payload.clipId, {
               effects: {
                 ...targetClip.effects,
@@ -283,6 +286,49 @@ export function useVideoAgent() {
           }
 
           editor.addClipToTimeline(newClip)
+          break
+        }
+
+        case "CREATE_MORPH_TRANSITION": {
+          const fromClip = editor.timelineClips.find((c) => c.id === action.payload.fromClipId)
+          const toClip = editor.timelineClips.find((c) => c.id === action.payload.toClipId)
+
+          if (!fromClip || !toClip) {
+            console.error("Clips not found for morph transition")
+            toast.error("Clips not found for morph transition")
+            break
+          }
+
+          // Show loading toast with promise
+          const morphPromise = import("@/lib/morph-transition")
+            .then(({ createMorphTransition }) => {
+              return createMorphTransition(
+                fromClip,
+                toClip,
+                editor.mediaFiles,
+                editor.projectId || "",
+                action.payload.durationSeconds
+              )
+            })
+            .then((result) => {
+              // Add the morph video to media files
+              editor.addMediaFiles([result.media])
+              // Add the morph clip to timeline
+              editor.addClipToTimeline(result.clip)
+              // Reposition the toClip to come right after the morph transition
+              editor.updateClip(result.toClipUpdate.clipId, {
+                startTime: result.toClipUpdate.newStartTime,
+              })
+              return result
+            })
+
+          toast.promise(morphPromise, {
+            loading: "Generating AI morph transition...",
+            success: "Morph transition added to timeline!",
+            error: (err) => `Failed to create morph transition: ${err.message || "Unknown error"}`,
+            duration: 5000,
+          })
+
           break
         }
       }
@@ -432,6 +478,16 @@ export function useVideoAgent() {
                 mediaId: tc.input.mediaId as string,
                 trackId: tc.input.trackId as string,
                 startTimeSeconds: tc.input.startTimeSeconds as number | undefined,
+              },
+            }
+            break
+          case "createMorphTransition":
+            action = {
+              action: "CREATE_MORPH_TRANSITION",
+              payload: {
+                fromClipId: tc.input.fromClipId as string,
+                toClipId: tc.input.toClipId as string,
+                durationSeconds: (tc.input.durationSeconds as number) || 5,
               },
             }
             break

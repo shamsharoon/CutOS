@@ -132,32 +132,42 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const addMediaFiles = useCallback(async (files: MediaFile[]) => {
     // Add files immediately with uploading state
-    const filesWithUploading = files.map(f => ({ ...f, isUploading: true }))
+    const filesWithUploading = files.map(f => ({ ...f, isUploading: !!projectId }))
     setMediaFiles((prev) => [...prev, ...filesWithUploading])
     setHasUnsavedChanges(true)
-    
-    // Upload each file to storage
+
+    // Upload each file to storage if project exists
     if (projectId) {
       for (const file of files) {
         if (file.file) {
-          const { data, error } = await uploadMediaFile(projectId, file.file)
-          if (data && !error) {
-            // Update the media file with storage info
-            setMediaFiles((prev) =>
-              prev.map((m) =>
-                m.id === file.id
-                  ? {
-                      ...m,
-                      storagePath: data.path,
-                      storageUrl: data.url,
-                      isUploading: false,
-                    }
-                  : m
+          try {
+            const { data, error } = await uploadMediaFile(projectId, file.file)
+            if (data && !error) {
+              // Update the media file with storage info
+              setMediaFiles((prev) =>
+                prev.map((m) =>
+                  m.id === file.id
+                    ? {
+                        ...m,
+                        storagePath: data.path,
+                        storageUrl: data.url,
+                        isUploading: false,
+                      }
+                    : m
+                )
               )
-            )
-          } else {
-            console.error("Failed to upload file:", file.name, error)
-            // Mark as not uploading even on error
+            } else {
+              console.error("Failed to upload file:", file.name, error)
+              // Mark as not uploading even on error
+              setMediaFiles((prev) =>
+                prev.map((m) =>
+                  m.id === file.id ? { ...m, isUploading: false } : m
+                )
+              )
+            }
+          } catch (err) {
+            console.error("Error uploading file:", file.name, err)
+            // Mark as not uploading on exception
             setMediaFiles((prev) =>
               prev.map((m) =>
                 m.id === file.id ? { ...m, isUploading: false } : m
