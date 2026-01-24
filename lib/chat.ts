@@ -29,25 +29,22 @@ export async function getChatSession(projectId: string): Promise<{ data: ChatSes
     return { data: null, error: new Error("Not authenticated") }
   }
 
-  // Try to get existing session
-  const { data: session, error } = await supabase
+  // Try to get existing session first
+  const { data: session, error: selectError } = await supabase
     .from("chat_sessions")
     .select("*")
     .eq("project_id", projectId)
     .eq("user_id", user.user.id)
     .single()
 
-  if (error && error.code !== "PGRST116") {
-    // PGRST116 = no rows returned, which is fine
-    return { data: null, error: new Error(error.message) }
-  }
-
   if (session) {
     return { data: session, error: null }
   }
 
-  // Create new session if doesn't exist
-  const { data: newSession, error: createError } = await supabase
+  // If not found, try to create it
+  // Handle race condition: if another process creates it between check and insert,
+  // the insert will fail with unique constraint, so we'll retry the select
+  const { data: newSession, error: insertError } = await supabase
     .from("chat_sessions")
     .insert({
       project_id: projectId,
@@ -57,8 +54,22 @@ export async function getChatSession(projectId: string): Promise<{ data: ChatSes
     .select()
     .single()
 
-  if (createError) {
-    return { data: null, error: new Error(createError.message) }
+  if (insertError) {
+    // If it's a unique constraint violation, another process created it - fetch it
+    if (insertError.code === "23505" || insertError.message.includes("duplicate key")) {
+      const { data: existingSession, error: retryError } = await supabase
+        .from("chat_sessions")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("user_id", user.user.id)
+        .single()
+
+      if (retryError) {
+        return { data: null, error: new Error(retryError.message) }
+      }
+      return { data: existingSession, error: null }
+    }
+    return { data: null, error: new Error(insertError.message) }
   }
 
   return { data: newSession, error: null }
