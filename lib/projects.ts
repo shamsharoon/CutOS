@@ -72,6 +72,10 @@ export interface MediaFileData {
   storageUrl: string // Public URL to access the file
   thumbnail: string | null // Base64 thumbnail
   captions?: Caption[] // Generated captions with timestamps
+  // TwelveLabs fields for NLP search
+  twelveLabsVideoId?: string // TwelveLabs asset ID
+  twelveLabsIndexId?: string // Index this video belongs to
+  twelveLabsStatus?: "pending" | "indexing" | "ready" | "failed"
 }
 
 // Create a new project

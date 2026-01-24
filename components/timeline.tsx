@@ -127,8 +127,32 @@ export function Timeline() {
       const media = mediaFiles.find((m) => m.id === mediaId)
       if (!media) return
 
-      // Calculate clip width based on duration (10px per second)
-      const clipWidth = Math.max(80, media.durationSeconds * PIXELS_PER_SECOND)
+      // Check for NLP search result time range (from AI search)
+      const clipStartStr = e.dataTransfer.getData("application/x-clip-start")
+      const clipEndStr = e.dataTransfer.getData("application/x-clip-end")
+      
+      let mediaOffset = 0 // Start from beginning of source media by default
+      let clipDuration: number
+      let clipLabel = media.name
+      
+      if (clipStartStr && clipEndStr) {
+        // NLP search result with specific time range
+        const clipStart = parseFloat(clipStartStr)
+        const clipEnd = parseFloat(clipEndStr)
+        mediaOffset = clipStart * PIXELS_PER_SECOND // Convert seconds to pixels
+        clipDuration = Math.max(80, (clipEnd - clipStart) * PIXELS_PER_SECOND)
+        
+        // Format time for label
+        const formatTime = (s: number) => {
+          const mins = Math.floor(s / 60)
+          const secs = Math.floor(s % 60)
+          return `${mins}:${secs.toString().padStart(2, "0")}`
+        }
+        clipLabel = `${media.name} (${formatTime(clipStart)} - ${formatTime(clipEnd)})`
+      } else {
+        // Full media clip
+        clipDuration = Math.max(80, media.durationSeconds * PIXELS_PER_SECOND)
+      }
 
       // Find clips on this track and get the end position of the last one
       const clipsOnTrack = timelineClips.filter((clip) => clip.trackId === trackId)
@@ -151,9 +175,9 @@ export function Timeline() {
         mediaId: media.id,
         trackId,
         startTime: startPosition,
-        duration: clipWidth,
-        mediaOffset: 0, // Start from beginning of source media
-        label: media.name,
+        duration: clipDuration,
+        mediaOffset: mediaOffset,
+        label: clipLabel,
         type: trackId.startsWith("V") ? "video" : "audio",
         transform: DEFAULT_CLIP_TRANSFORM,
         effects: DEFAULT_CLIP_EFFECTS,

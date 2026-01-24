@@ -20,6 +20,11 @@ export interface MediaFile {
   isUploading?: boolean // Track upload state
   captions?: Caption[] // Generated captions with timestamps
   captionsGenerating?: boolean // Track caption generation state
+  // TwelveLabs fields for NLP search
+  twelveLabsVideoId?: string // TwelveLabs asset ID
+  twelveLabsIndexId?: string // Index this video belongs to
+  twelveLabsStatus?: "pending" | "indexing" | "ready" | "failed"
+  twelveLabsError?: string // Error message if indexing failed
 }
 
 export interface TimelineClip {
@@ -122,6 +127,9 @@ interface EditorContextType {
   setShowCaptions: (show: boolean) => void
   captionStyle: "classic" | "tiktok"
   setCaptionStyle: (style: "classic" | "tiktok") => void
+  
+  // TwelveLabs indexing
+  reindexMedia: (mediaId: string) => Promise<void>
 }
 
 const EditorContext = createContext<EditorContextType | null>(null)
@@ -142,6 +150,126 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [captionStyle, setCaptionStyle] = useState<"classic" | "tiktok">("tiktok")
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Function to index a video to TwelveLabs (called after upload)
+  const indexToTwelveLabs = useCallback(async (mediaId: string, storageUrl: string, fileName: string) => {
+    if (!projectId) return
+    
+    try {
+      // Mark as pending indexing
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId ? { ...m, twelveLabsStatus: "pending" as const } : m
+        )
+      )
+      
+      const response = await fetch("/api/twelvelabs/index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          videoUrl: storageUrl,
+          videoName: fileName,
+          mediaId,
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        const errorMessage = errorData.error || "Failed to index video"
+        console.error(`TwelveLabs index error for "${fileName}":`, errorMessage)
+        setMediaFiles((prev) =>
+          prev.map((m) =>
+            m.id === mediaId 
+              ? { ...m, twelveLabsStatus: "failed" as const, twelveLabsError: errorMessage } 
+              : m
+          )
+        )
+        return
+      }
+      
+      const data = await response.json()
+      
+      // Update with TwelveLabs info and start polling for status
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId
+            ? {
+                ...m,
+                twelveLabsVideoId: data.videoId,
+                twelveLabsIndexId: data.indexId,
+                twelveLabsStatus: "indexing" as const,
+              }
+            : m
+        )
+      )
+      setHasUnsavedChanges(true)
+      
+      // Poll for indexing completion
+      pollTwelveLabsStatus(mediaId, data.indexId, data.videoId)
+    } catch (error) {
+      console.error("TwelveLabs indexing error:", error)
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId ? { ...m, twelveLabsStatus: "failed" as const } : m
+        )
+      )
+    }
+  }, [projectId])
+  
+  // Poll for TwelveLabs indexing status
+  const pollTwelveLabsStatus = useCallback(async (mediaId: string, indexId: string, videoId: string) => {
+    const maxAttempts = 60 // 5 minutes at 5-second intervals
+    let attempts = 0
+    
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        console.warn("TwelveLabs indexing timeout for media:", mediaId)
+        return
+      }
+      
+      try {
+        const response = await fetch("/api/twelvelabs/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ indexId, videoId }),
+        })
+        
+        if (!response.ok) {
+          console.error("TwelveLabs status check failed")
+          return
+        }
+        
+        const data = await response.json()
+        
+        if (data.status === "ready") {
+          setMediaFiles((prev) =>
+            prev.map((m) =>
+              m.id === mediaId ? { ...m, twelveLabsStatus: "ready" as const } : m
+            )
+          )
+          setHasUnsavedChanges(true)
+          return
+        } else if (data.status === "failed") {
+          setMediaFiles((prev) =>
+            prev.map((m) =>
+              m.id === mediaId ? { ...m, twelveLabsStatus: "failed" as const } : m
+            )
+          )
+          return
+        }
+        
+        // Still indexing, poll again
+        attempts++
+        setTimeout(poll, 5000) // Poll every 5 seconds
+      } catch (error) {
+        console.error("TwelveLabs status polling error:", error)
+      }
+    }
+    
+    // Start polling after a brief delay
+    setTimeout(poll, 3000)
+  }, [])
 
   const addMediaFiles = useCallback(async (files: MediaFile[]) => {
     // Add files immediately with uploading state
@@ -168,6 +296,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
                   : m
               )
             )
+            
+            // Auto-index to TwelveLabs for NLP search (async, non-blocking)
+            indexToTwelveLabs(file.id, data.url, file.name)
           } else {
             console.error("Failed to upload file:", file.name, error)
             // Mark as not uploading even on error
@@ -180,7 +311,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-  }, [projectId])
+  }, [projectId, indexToTwelveLabs])
+
+  // Manually re-index a media file to TwelveLabs (for existing media without indexing)
+  const reindexMedia = useCallback(async (mediaId: string) => {
+    const media = mediaFiles.find(m => m.id === mediaId)
+    if (!media || !media.storageUrl) {
+      console.error("Cannot reindex: media not found or not uploaded")
+      return
+    }
+    
+    // Trigger indexing
+    await indexToTwelveLabs(mediaId, media.storageUrl, media.name)
+  }, [mediaFiles, indexToTwelveLabs])
 
   const removeMediaFile = useCallback((id: string) => {
     setMediaFiles((prev) => prev.filter((f) => f.id !== id))
@@ -292,6 +435,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       isUploading: false,
       captions: m.captions, // Restore generated captions
       captionsGenerating: false,
+      // Restore TwelveLabs fields
+      twelveLabsVideoId: m.twelveLabsVideoId,
+      twelveLabsIndexId: m.twelveLabsIndexId,
+      twelveLabsStatus: m.twelveLabsStatus,
     }))
     
     setMediaFiles(restoredMedia)
@@ -331,6 +478,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           storageUrl: m.storageUrl!,
           thumbnail: m.thumbnail,
           captions: m.captions, // Include generated captions
+          // Include TwelveLabs fields
+          twelveLabsVideoId: m.twelveLabsVideoId,
+          twelveLabsIndexId: m.twelveLabsIndexId,
+          twelveLabsStatus: m.twelveLabsStatus,
         })),
     }
     
@@ -549,6 +700,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         setShowCaptions,
         captionStyle,
         setCaptionStyle,
+        reindexMedia,
       }}
     >
       {children}
