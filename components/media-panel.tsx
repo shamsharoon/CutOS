@@ -640,19 +640,19 @@ function AgentTab() {
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="border-t border-border p-3">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <input
             type="text"
             placeholder="Ask AI to edit your video..."
             value={input}
             onChange={handleInputChange}
             disabled={isLoading || isRecording}
-            className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
+            className="flex-1 rounded-md border border-input bg-background px-3 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           />
           {input.trim() ? (
           <button
             type="submit"
-            className="rounded-md bg-primary px-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center justify-center rounded-md bg-primary px-3 py-2.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             disabled={!input.trim() || isLoading}
           >
               <Send className="h-3.5 w-3.5" />
@@ -685,7 +685,7 @@ function AgentTab() {
                 type="button"
                 onClick={toggleRecording}
                 disabled={isLoading || isTranscribing}
-                className={`relative rounded-md px-3 py-2 text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                className={`relative flex items-center justify-center rounded-md px-3 py-2.5 text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                   isRecording
                     ? "bg-red-500"
                     : "bg-primary"
