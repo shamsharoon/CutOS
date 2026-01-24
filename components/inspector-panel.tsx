@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Sparkles, History, Wand2 } from "lucide-react"
+import { Wand2 } from "lucide-react"
 import { useEditor, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 import type { EffectPreset, ClipEffects, ClipTransform } from "@/lib/projects"
 
@@ -26,15 +26,9 @@ export function InspectorPanel() {
     <div className="flex h-full flex-col">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col">
         <div className="border-b border-border px-3 py-2">
-          <TabsList className="grid w-full grid-cols-3 bg-secondary">
+          <TabsList className="grid w-full grid-cols-1 bg-secondary">
             <TabsTrigger value="effects" className="text-xs">
-              <Wand2 className="h-3.5 w-3.5" />
-            </TabsTrigger>
-            <TabsTrigger value="ai" className="text-xs">
-              <Sparkles className="h-3.5 w-3.5" />
-            </TabsTrigger>
-            <TabsTrigger value="history" className="text-xs">
-              <History className="h-3.5 w-3.5" />
+              <Wand2 className="h-3.5 w-3.5" /> Effects 
             </TabsTrigger>
           </TabsList>
         </div>
@@ -42,12 +36,6 @@ export function InspectorPanel() {
         <div className="flex-1 overflow-hidden">
           <TabsContent value="effects" className="m-0 h-full">
             <EffectsTab />
-          </TabsContent>
-          <TabsContent value="ai" className="m-0 h-full">
-            <AITab />
-          </TabsContent>
-          <TabsContent value="history" className="m-0 h-full">
-            <HistoryTab />
           </TabsContent>
         </div>
       </Tabs>
@@ -290,67 +278,6 @@ function EffectsTab() {
           </AccordionContent>
         </AccordionItem>
       </Accordion>
-    </div>
-  )
-}
-
-function AITab() {
-  const [prompt, setPrompt] = useState("")
-
-  return (
-    <div className="flex h-full flex-col">
-      {/* Agent Chat Area */}
-      <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
-        <div className="flex h-full flex-col items-center justify-center text-center">
-          <div className="rounded-full bg-primary/10 p-3 mb-3">
-            <Sparkles className="h-6 w-6 text-primary" />
-          </div>
-          <p className="text-sm font-medium text-foreground mb-1">Edit Agent</p>
-          <p className="text-xs text-muted-foreground max-w-[200px]">
-            Ask the AI agent to edit your timeline
-          </p>
-          <div className="mt-4 space-y-1.5 text-xs text-muted-foreground">
-            <p className="italic">"Apply noir effect to selected clip"</p>
-            <p className="italic">"Split clip at the loud part"</p>
-            <p className="italic">"Add intro clip to timeline"</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Prompt Input */}
-      <div className="border-t border-border p-3">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Ask the agent to edit..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-          <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary">
-            <Sparkles className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function HistoryTab() {
-  return (
-    <div className="h-full overflow-y-auto p-3 scrollbar-thin">
-      <div className="space-y-1">
-        {["Added clip to timeline", "Trimmed clip end", "Adjusted audio level", "Applied color correction"].map(
-          (action, i) => (
-            <div
-              key={i}
-              className="rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              {action}
-            </div>
-          ),
-        )}
-      </div>
     </div>
   )
 }

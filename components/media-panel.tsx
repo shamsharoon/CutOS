@@ -14,14 +14,10 @@ export function MediaPanel() {
     <div className="flex h-full flex-col">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col">
         <div className="border-b border-border px-3 py-2">
-          <TabsList className="grid w-full grid-cols-3 bg-secondary">
+          <TabsList className="grid w-full grid-cols-2 bg-secondary">
             <TabsTrigger value="media" className="text-xs">
               <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
               Media
-            </TabsTrigger>
-            <TabsTrigger value="clips" className="text-xs">
-              <Film className="mr-1.5 h-3.5 w-3.5" />
-              Clips
             </TabsTrigger>
             <TabsTrigger value="agent" className="text-xs">
               <Sparkles className="mr-1.5 h-3.5 w-3.5" />
@@ -37,9 +33,6 @@ export function MediaPanel() {
               onFilesAdded={addMediaFiles} 
               onRemoveFile={removeMediaFile}
             />
-          </TabsContent>
-          <TabsContent value="clips" className="m-0 h-full">
-            <ClipsTab />
           </TabsContent>
           <TabsContent value="agent" className="m-0 h-full">
             <AgentTab />
@@ -361,14 +354,6 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
         </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function ClipsTab() {
-  return (
-    <div className="h-full overflow-y-auto p-3 scrollbar-thin">
-      <div className="text-xs text-muted-foreground">Clips will appear here as you cut and organize your footage</div>
     </div>
   )
 }
