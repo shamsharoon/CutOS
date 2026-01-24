@@ -73,11 +73,17 @@ export function VideoPreview() {
   } = useEditor()
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const nextVideoRef = useRef<HTMLVideoElement>(null) // Buffer for next clip
   const backgroundVideoRef = useRef<HTMLVideoElement>(null)
   const scrubberRef = useRef<HTMLDivElement>(null)
   const animationRef = useRef<number | null>(null)
   const lastActiveClipIdRef = useRef<string | null>(null)
   const lastBackgroundClipIdRef = useRef<string | null>(null)
+  const [useNextVideo, setUseNextVideo] = useState(false) // Toggle between video elements
+  const isPreloadedRef = useRef(false) // Track if next clip is preloaded and ready
+  const nextClipIdRef = useRef<string | null>(null) // Track which clip is preloaded
+  const seamlessCanvasRef = useRef<HTMLCanvasElement>(null) // Canvas for guaranteed seamless playback
+  const renderLoopRef = useRef<number | null>(null) // Animation frame for canvas rendering
   const chromakeyCanvasRef = useRef<HTMLCanvasElement>(null)
   const chromakeyProcessorRef = useRef<ChromakeyProcessor | null>(null)
   const chromakeyAnimationRef = useRef<number | null>(null)
@@ -160,26 +166,182 @@ export function VideoPreview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, timelineEndTime, setCurrentTime, setIsPlaying])
 
+  // Preload and prepare next clip for seamless transitions
+  useEffect(() => {
+    if (!sortedVideoClips.length || !isPlaying) {
+      isPreloadedRef.current = false
+      nextClipIdRef.current = null
+      return
+    }
+
+    // Find current clip index
+    const currentClipIndex = sortedVideoClips.findIndex((c) => c.id === activeClip?.id)
+    if (currentClipIndex === -1 || currentClipIndex >= sortedVideoClips.length - 1) {
+      isPreloadedRef.current = false
+      nextClipIdRef.current = null
+      return
+    }
+
+    // Get next clip
+    const nextClip = sortedVideoClips[currentClipIndex + 1]
+    const nextMedia = mediaFiles.find((m) => m.id === nextClip.mediaId)
+    if (!nextMedia) return
+
+    // Calculate how far we are from the end of current clip
+    const currentClipEndTime = (activeClip!.startTime + activeClip!.duration) / PIXELS_PER_SECOND
+    const timeUntilNextClip = currentClipEndTime - currentTime
+
+    const targetVideoRef = useNextVideo ? videoRef : nextVideoRef
+
+    // Start preloading when we're within 1.5 seconds of the next clip
+    if (timeUntilNextClip <= 1.5 && timeUntilNextClip > 0 && nextClipIdRef.current !== nextClip.id) {
+      if (targetVideoRef.current) {
+        console.log("🔄 Preloading next clip:", nextClip.label, `(${timeUntilNextClip.toFixed(2)}s until transition)`)
+
+        targetVideoRef.current.src = nextMedia.objectUrl
+        targetVideoRef.current.load()
+        nextClipIdRef.current = nextClip.id
+
+        // Seek to the start position of the next clip
+        targetVideoRef.current.onloadedmetadata = () => {
+          if (!targetVideoRef.current) return
+          const nextClipOffset = nextClip.mediaOffset / PIXELS_PER_SECOND
+          targetVideoRef.current.currentTime = nextClipOffset
+          console.log("✅ Next clip metadata loaded, seeked to", nextClipOffset)
+
+          // Preload by seeking forward then back
+          targetVideoRef.current.currentTime = nextClipOffset + 0.5
+          setTimeout(() => {
+            if (targetVideoRef.current) {
+              targetVideoRef.current.currentTime = nextClipOffset
+            }
+          }, 100)
+        }
+
+        // Mark as ready when it can play
+        targetVideoRef.current.oncanplay = () => {
+          isPreloadedRef.current = true
+          console.log("✅ Next clip ready to play")
+        }
+      }
+    }
+
+    // Start playing the preloaded video 0.05 seconds before transition
+    if (timeUntilNextClip <= 0.05 && timeUntilNextClip > 0 && isPreloadedRef.current) {
+      if (targetVideoRef.current && targetVideoRef.current.paused) {
+        console.log("▶️ Starting next clip playback early")
+        targetVideoRef.current.play().catch((err) => {
+          console.warn("Failed to start next clip:", err)
+        })
+      }
+    }
+  }, [currentTime, activeClip, sortedVideoClips, mediaFiles, isPlaying, useNextVideo])
+
+  // Continuous canvas rendering for zero-gap playback
+  useEffect(() => {
+    if (!seamlessCanvasRef.current || !isPlaying) {
+      if (renderLoopRef.current) {
+        cancelAnimationFrame(renderLoopRef.current)
+        renderLoopRef.current = null
+      }
+      return
+    }
+
+    const canvas = seamlessCanvasRef.current
+    const ctx = canvas.getContext('2d', { alpha: false })
+    if (!ctx) return
+
+    const render = () => {
+      const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+      const video = currentVideoRef.current
+
+      if (video && video.readyState >= 2) {
+        // Set canvas size to match video
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+          canvas.width = video.videoWidth
+          canvas.height = video.videoHeight
+        }
+
+        // Draw current frame
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      }
+
+      renderLoopRef.current = requestAnimationFrame(render)
+    }
+
+    render()
+
+    return () => {
+      if (renderLoopRef.current) {
+        cancelAnimationFrame(renderLoopRef.current)
+        renderLoopRef.current = null
+      }
+    }
+  }, [isPlaying, useNextVideo])
+
   // Sync video element with active clip and offset
   useEffect(() => {
-    if (!videoRef.current || !activeClip || !previewMedia) return
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    if (!currentVideoRef.current || !activeClip || !previewMedia) return
 
-    // If we switched to a different clip, update the video source and seek
+    // If we switched to a different clip, swap video elements for seamless transition
     if (lastActiveClipIdRef.current !== activeClip.id) {
+      const previousClipId = lastActiveClipIdRef.current
       lastActiveClipIdRef.current = activeClip.id
 
+      // If this is a sequential clip change during playback, use the preloaded video
+      if (previousClipId && isPlaying) {
+        const prevIndex = sortedVideoClips.findIndex((c) => c.id === previousClipId)
+        const currIndex = sortedVideoClips.findIndex((c) => c.id === activeClip.id)
+
+        // If moving to the next clip in sequence and it's preloaded, swap video elements
+        if (currIndex === prevIndex + 1 && nextClipIdRef.current === activeClip.id && isPreloadedRef.current) {
+          console.log("✅ Seamless swap to preloaded clip")
+
+          // Swap to the preloaded video
+          setUseNextVideo(!useNextVideo)
+
+          // Reset states
+          isPreloadedRef.current = false
+          nextClipIdRef.current = null
+
+          // The preloaded video should already be playing, but ensure it is
+          const newCurrentRef = useNextVideo ? videoRef : nextVideoRef
+          if (newCurrentRef.current && newCurrentRef.current.paused) {
+            newCurrentRef.current.play().catch(() => {})
+          }
+
+          // Pause the old video to save resources
+          const oldVideoRef = useNextVideo ? nextVideoRef : videoRef
+          if (oldVideoRef.current && !oldVideoRef.current.paused) {
+            oldVideoRef.current.pause()
+          }
+
+          return
+        }
+      }
+
+      // Reset preload state for non-sequential changes
+      isPreloadedRef.current = false
+      nextClipIdRef.current = null
+
+      // For non-sequential changes, update the current video normally
+      if (currentVideoRef.current.src !== previewMedia.objectUrl) {
+        currentVideoRef.current.src = previewMedia.objectUrl
+      }
+
       // Clamp clipTimeOffset to valid video duration range
-      const videoDuration = videoRef.current.duration
+      const videoDuration = currentVideoRef.current.duration
       if (!isNaN(videoDuration) && videoDuration > 0) {
         const clampedTime = Math.max(0, Math.min(clipTimeOffset, videoDuration))
-        videoRef.current.currentTime = clampedTime
+        currentVideoRef.current.currentTime = clampedTime
       }
 
       if (isPlaying) {
-        videoRef.current.play().catch(() => { })
+        currentVideoRef.current.play().catch(() => { })
       }
     }
-  }, [activeClip?.id, previewMedia, clipTimeOffset, isPlaying])
+  }, [activeClip?.id, previewMedia, clipTimeOffset, isPlaying, useNextVideo, sortedVideoClips])
 
   // Sync background video when chromakey is enabled (only on clip change)
   useEffect(() => {
@@ -260,43 +422,46 @@ export function VideoPreview() {
 
   // Seek video when scrubbing (not playing)
   useEffect(() => {
-    if (!videoRef.current || !activeClip || !previewMedia || isPlaying) return
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    if (!currentVideoRef.current || !activeClip || !previewMedia || isPlaying) return
 
     // Only seek if clipTimeOffset is within valid video duration range
     // If dragging past the video, don't try to seek (will show last frame)
-    const videoDuration = videoRef.current.duration
+    const videoDuration = currentVideoRef.current.duration
     if (isNaN(videoDuration) || videoDuration === 0) return // Wait for video to load
 
     // Only seek if within bounds, otherwise let it stay at the last frame
     if (clipTimeOffset >= 0 && clipTimeOffset <= videoDuration) {
-      videoRef.current.currentTime = clipTimeOffset
+      currentVideoRef.current.currentTime = clipTimeOffset
     }
-  }, [clipTimeOffset, activeClip, previewMedia, isPlaying])
+  }, [clipTimeOffset, activeClip, previewMedia, isPlaying, useNextVideo])
 
   // Keep video in sync during playback
   useEffect(() => {
-    if (!videoRef.current || !activeClip || !isPlaying || isSeeking) return
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    if (!currentVideoRef.current || !activeClip || !isPlaying || isSeeking) return
 
     // Only sync if the video drifts too far from where it should be
     const expectedTime = clipTimeOffset
-    const actualTime = videoRef.current.currentTime
+    const actualTime = currentVideoRef.current.currentTime
     const drift = Math.abs(expectedTime - actualTime)
 
     if (drift > 0.5) {
-      videoRef.current.currentTime = expectedTime
+      currentVideoRef.current.currentTime = expectedTime
     }
-  }, [clipTimeOffset, activeClip, isPlaying, isSeeking])
+  }, [clipTimeOffset, activeClip, isPlaying, isSeeking, useNextVideo])
 
   // Handle play/pause state changes
   useEffect(() => {
-    if (!videoRef.current || !previewMedia) return
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    if (!currentVideoRef.current || !previewMedia) return
 
     if (isPlaying) {
-      videoRef.current.play().catch(() => {
+      currentVideoRef.current.play().catch(() => {
         setIsPlaying(false)
       })
     } else {
-      videoRef.current.pause()
+      currentVideoRef.current.pause()
     }
   }, [isPlaying, previewMedia, setIsPlaying])
 
@@ -315,41 +480,42 @@ export function VideoPreview() {
 
   // Update duration when video metadata loads
   const handleLoadedMetadata = useCallback(() => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration)
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    if (currentVideoRef.current) {
+      setDuration(currentVideoRef.current.duration)
     }
-  }, [])
+  }, [useNextVideo])
 
-  // Capture thumbnail from first frame of video
+  // Capture thumbnail from canvas
   const captureThumbnail = useCallback(() => {
-    if (!videoRef.current || thumbnailCaptured) return
+    if (!seamlessCanvasRef.current || thumbnailCaptured) return
 
-    const video = videoRef.current
-    const canvas = document.createElement("canvas")
-    canvas.width = 320 // Thumbnail width
-    canvas.height = 180 // 16:9 aspect ratio
-
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    const sourceCanvas = seamlessCanvasRef.current
+    if (sourceCanvas.width === 0 || sourceCanvas.height === 0) return
 
     try {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const canvas = document.createElement("canvas")
+      canvas.width = 320 // Thumbnail width
+      canvas.height = (320 / sourceCanvas.width) * sourceCanvas.height
+
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+
+      ctx.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height)
       const thumbnail = canvas.toDataURL("image/jpeg", 0.7)
       setProjectThumbnail(thumbnail)
       setThumbnailCaptured(true)
     } catch (error) {
-      // CORS error - can't capture thumbnail from cross-origin video
-      // This is expected when playing videos from Supabase Storage
-      console.warn("Could not capture thumbnail (CORS):", error)
+      console.warn("Could not capture thumbnail:", error)
       setThumbnailCaptured(true) // Don't retry
     }
   }, [setProjectThumbnail, thumbnailCaptured])
 
-  // Capture thumbnail when video can play
+  // Capture thumbnail when canvas has content
   const handleCanPlay = useCallback(() => {
-    if (!thumbnailCaptured && videoRef.current) {
-      // Small delay to ensure frame is rendered
-      setTimeout(() => captureThumbnail(), 100)
+    if (!thumbnailCaptured) {
+      // Small delay to ensure canvas has rendered a frame
+      setTimeout(() => captureThumbnail(), 200)
     }
   }, [captureThumbnail, thumbnailCaptured])
 
@@ -381,7 +547,8 @@ export function VideoPreview() {
 
   // Process chromakey frames when enabled
   useEffect(() => {
-    if (!chromakeyEnabled || !chromakeyProcessorRef.current || !videoRef.current || !chromakeyCanvasRef.current) {
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    if (!chromakeyEnabled || !chromakeyProcessorRef.current || !currentVideoRef.current || !chromakeyCanvasRef.current) {
       if (chromakeyAnimationRef.current) {
         cancelAnimationFrame(chromakeyAnimationRef.current)
         chromakeyAnimationRef.current = null
@@ -390,7 +557,7 @@ export function VideoPreview() {
     }
 
     const processor = chromakeyProcessorRef.current
-    const video = videoRef.current
+    const video = currentVideoRef.current
     const backgroundVideo = backgroundVideoRef.current
     const canvas = chromakeyCanvasRef.current
     const chromakeyOptions: ChromakeyOptions = {
@@ -424,7 +591,7 @@ export function VideoPreview() {
         chromakeyAnimationRef.current = null
       }
     }
-  }, [chromakeyEnabled, activeClipEffects.chromakey, activeClip?.id, previewMedia?.id, backgroundClip?.id, backgroundMedia?.id])
+  }, [chromakeyEnabled, activeClipEffects.chromakey, activeClip?.id, previewMedia?.id, backgroundClip?.id, backgroundMedia?.id, useNextVideo])
 
   // Keep display time in sync during playback via animation frame
   useEffect(() => {
@@ -454,49 +621,29 @@ export function VideoPreview() {
     setIsPlaying(!isPlaying)
   }
 
-  // Handle color sampling from video
-  const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement | HTMLCanvasElement>) => {
+  // Handle color sampling from canvas
+  const handleVideoClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isEyedropperActive && onColorSampled) {
       e.stopPropagation()
 
-      const target = e.currentTarget
-      const rect = target.getBoundingClientRect()
-
-      // Get the actual video/canvas dimensions
-      let sourceWidth: number
-      let sourceHeight: number
-
-      if (target instanceof HTMLVideoElement) {
-        sourceWidth = target.videoWidth || rect.width
-        sourceHeight = target.videoHeight || rect.height
-      } else if (target instanceof HTMLCanvasElement) {
-        sourceWidth = target.width
-        sourceHeight = target.height
-      } else {
-        return
-      }
+      const canvas = e.currentTarget
+      const rect = canvas.getBoundingClientRect()
 
       // Calculate the click position in source coordinates
-      const scaleX = sourceWidth / rect.width
-      const scaleY = sourceHeight / rect.height
+      const scaleX = canvas.width / rect.width
+      const scaleY = canvas.height / rect.height
       const x = Math.floor((e.clientX - rect.left) * scaleX)
       const y = Math.floor((e.clientY - rect.top) * scaleY)
 
-      // Create a temporary canvas to sample the color
-      const canvas = document.createElement("canvas")
-      canvas.width = sourceWidth
-      canvas.height = sourceHeight
       const ctx = canvas.getContext("2d")
-
       if (ctx) {
         try {
-          if (target instanceof HTMLVideoElement) {
-            ctx.drawImage(target, 0, 0, sourceWidth, sourceHeight)
-          } else if (target instanceof HTMLCanvasElement) {
-            ctx.drawImage(target, 0, 0, sourceWidth, sourceHeight)
-          }
-
-          const imageData = ctx.getImageData(Math.max(0, Math.min(x, sourceWidth - 1)), Math.max(0, Math.min(y, sourceHeight - 1)), 1, 1)
+          const imageData = ctx.getImageData(
+            Math.max(0, Math.min(x, canvas.width - 1)),
+            Math.max(0, Math.min(y, canvas.height - 1)),
+            1,
+            1
+          )
           const [r, g, b] = imageData.data
 
           // Ensure we have valid color values
@@ -515,23 +662,25 @@ export function VideoPreview() {
   }
 
   const handleSkipBack = () => {
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
     const newTime = Math.max(0, currentTime - 5)
     setCurrentTime(newTime)
-    if (videoRef.current && activeClip) {
+    if (currentVideoRef.current && activeClip) {
       const newOffset = (newTime * PIXELS_PER_SECOND - activeClip.startTime) / PIXELS_PER_SECOND
       if (newOffset >= 0) {
-        videoRef.current.currentTime = newOffset
+        currentVideoRef.current.currentTime = newOffset
       }
     }
   }
 
   const handleSkipForward = () => {
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
     const newTime = Math.min(timelineEndTime, currentTime + 5)
     setCurrentTime(newTime)
-    if (videoRef.current && activeClip) {
+    if (currentVideoRef.current && activeClip) {
       const newOffset = (newTime * PIXELS_PER_SECOND - activeClip.startTime) / PIXELS_PER_SECOND
       if (newOffset >= 0) {
-        videoRef.current.currentTime = newOffset
+        currentVideoRef.current.currentTime = newOffset
       }
     }
   }
@@ -857,19 +1006,33 @@ export function VideoPreview() {
                   playsInline
                 />
               )}
-              {/* Video element - always present, behind canvas when chromakey is enabled */}
+              {/* Hidden video elements - used as source for canvas rendering */}
               <video
                 ref={videoRef}
-                key={previewMedia.id} // Force remount when media changes
+                key={`primary-${previewMedia.id}`}
                 src={previewMedia.objectUrl}
                 crossOrigin="anonymous"
-                className={chromakeyEnabled ? "absolute inset-0 h-full w-full object-contain pointer-events-none -z-10" : `h-full w-full object-contain ${isEyedropperActive ? "cursor-crosshair" : "cursor-pointer"}`}
-                style={chromakeyEnabled ? { ...videoStyle, visibility: "hidden" } : videoStyle}
-                onClick={chromakeyEnabled ? undefined : handleVideoClick}
+                style={{ display: 'none' }}
                 onLoadedMetadata={handleLoadedMetadata}
                 onCanPlay={handleCanPlay}
                 muted={false}
                 playsInline
+              />
+              <video
+                ref={nextVideoRef}
+                key={`secondary-${previewMedia.id}`}
+                src={previewMedia.objectUrl}
+                crossOrigin="anonymous"
+                style={{ display: 'none' }}
+                muted={false}
+                playsInline
+              />
+              {/* Canvas for seamless playback - draws from active video */}
+              <canvas
+                ref={seamlessCanvasRef}
+                className={chromakeyEnabled ? "absolute inset-0 h-full w-full object-contain pointer-events-none -z-10" : `h-full w-full object-contain ${isEyedropperActive ? "cursor-crosshair" : "cursor-pointer"}`}
+                style={chromakeyEnabled ? { ...videoStyle, visibility: "hidden" } : videoStyle}
+                onClick={chromakeyEnabled ? undefined : handleVideoClick}
               />
               {/* Chromakey canvas - shown when chromakey is enabled, composited on top of background */}
               {chromakeyEnabled && (
