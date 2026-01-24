@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
+import { motion, AnimatePresence } from "framer-motion"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
@@ -657,37 +658,121 @@ function AgentTab() {
               <Send className="h-3.5 w-3.5" />
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={toggleRecording}
-              disabled={isLoading || isTranscribing}
-              className={`rounded-md px-3 text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer ${
-                isRecording 
-                  ? "bg-red-500 hover:bg-red-600 animate-pulse" 
-                  : "bg-primary hover:bg-primary/90"
-              }`}
-              title={isRecording ? "Stop recording" : "Start voice recording"}
-            >
-              {isTranscribing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Mic className="h-3.5 w-3.5" />
-              )}
-            </button>
+            <div className="relative">
+              {/* Pulsing rings when recording */}
+              <AnimatePresence>
+                {isRecording && (
+                  <>
+                    <motion.div
+                      className="absolute inset-0 rounded-md bg-red-500"
+                      initial={{ opacity: 0.6, scale: 1 }}
+                      animate={{ opacity: 0, scale: 1.8 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "easeOut" }}
+                    />
+                    <motion.div
+                      className="absolute inset-0 rounded-md bg-red-500"
+                      initial={{ opacity: 0.4, scale: 1 }}
+                      animate={{ opacity: 0, scale: 1.5 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "easeOut", delay: 0.3 }}
+                    />
+                  </>
+                )}
+              </AnimatePresence>
+
+              <motion.button
+                type="button"
+                onClick={toggleRecording}
+                disabled={isLoading || isTranscribing}
+                className={`relative rounded-md px-3 py-2 text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                  isRecording
+                    ? "bg-red-500"
+                    : "bg-primary"
+                }`}
+                title={isRecording ? "Stop recording" : "Start voice recording"}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                animate={isRecording ? {
+                  backgroundColor: ["#ef4444", "#dc2626", "#ef4444"],
+                } : {}}
+                transition={{
+                  backgroundColor: { duration: 0.8, repeat: Infinity, ease: "easeInOut" },
+                  scale: { type: "spring", stiffness: 400, damping: 17 }
+                }}
+              >
+                <AnimatePresence mode="wait">
+                  {isTranscribing ? (
+                    <motion.div
+                      key="transcribing"
+                      initial={{ opacity: 0, rotate: 0 }}
+                      animate={{ opacity: 1, rotate: 360 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ rotate: { duration: 1, repeat: Infinity, ease: "linear" } }}
+                    >
+                      <Loader2 className="h-3.5 w-3.5" />
+                    </motion.div>
+                  ) : isRecording ? (
+                    <motion.div
+                      key="recording"
+                      className="flex items-center gap-0.5"
+                      initial={{ opacity: 0, scale: 0.5 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.5 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                    >
+                      {/* Sound wave bars */}
+                      {[0, 1, 2].map((i) => (
+                        <motion.div
+                          key={i}
+                          className="w-0.5 bg-white rounded-full"
+                          animate={{
+                            height: ["8px", "14px", "8px"],
+                          }}
+                          transition={{
+                            duration: 0.5,
+                            repeat: Infinity,
+                            ease: "easeInOut",
+                            delay: i * 0.15,
+                          }}
+                        />
+                      ))}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="idle"
+                      initial={{ opacity: 0, scale: 0.5 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.5 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                    >
+                      <Mic className="h-3.5 w-3.5" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.button>
+            </div>
           )}
         </div>
-        {isRecording && (
-          <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
-            <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            <span>Recording... Click again to stop</span>
-          </div>
-        )}
-        {isTranscribing && (
-          <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            <span>Transcribing audio...</span>
-          </div>
-        )}
+        <AnimatePresence>
+          {isTranscribing && (
+            <motion.div
+              className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+            >
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              >
+                <Loader2 className="h-3 w-3" />
+              </motion.div>
+              <span>Transcribing audio...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </form>
     </div>
   )
