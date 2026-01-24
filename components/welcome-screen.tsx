@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Film, Sparkles, ArrowRight, LogOut } from "lucide-react"
+import { Sparkles, ArrowRight, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AuthModal } from "./auth-modal"
 import { useAuth } from "./auth-provider"
@@ -71,10 +71,7 @@ export function WelcomeScreen() {
         {/* Navigation */}
         <nav className="relative z-20 flex items-center justify-between px-6 py-5 lg:px-12">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-              <Film className="h-5 w-5 text-primary" />
-            </div>
-            <span className="text-lg font-semibold text-foreground">Cutos</span>
+            <img src="/cutos.svg" alt="CutOS" className="h-32 w-32" />
           </div>
           
           <div className="flex items-center gap-2">
@@ -143,8 +140,8 @@ export function WelcomeScreen() {
         <footer className="relative z-10 border-t border-border px-6 py-8">
           <div className="mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <Film className="h-5 w-5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Cutos © 2026</span>
+              <img src="/cutos.svg" alt="CutOS" className="h-15 w-15 opacity-60" />
+              <span className="text-sm text-muted-foreground">© 2026</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
               <a href="#" className="hover:text-foreground transition-colors cursor-pointer">Privacy</a>

@@ -44,7 +44,7 @@ export function buildSystemPrompt(timelineState: TimelineState): string {
           .join("\n")
       : "No media files"
 
-  return `You are an AI video editing assistant for Cutos, a browser-based video editor. You help users edit their videos by manipulating clips on the timeline.
+  return `You are an AI video editing assistant for CutOS, a browser-based video editor. You help users edit their videos by manipulating clips on the timeline.
 
 ## Current Timeline State
 
