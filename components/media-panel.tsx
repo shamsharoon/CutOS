@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Check, AlertCircle } from "lucide-react"
+import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Check, AlertCircle, MessageSquarePlus } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
 import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
 
@@ -359,7 +359,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 }
 
 function AgentTab() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction, status } = useVideoAgent()
+  const { messages, input, handleInputChange, handleSubmit, isLoading, isLoadingHistory, sendQuickAction, clearChat, status } = useVideoAgent()
   const { selectedClipId, currentTime } = useEditor()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -373,8 +373,28 @@ function AgentTab() {
     sendQuickAction(action)
   }
 
+  const handleNewChat = () => {
+    if (window.confirm("Start a new chat? This will clear your current conversation.")) {
+      clearChat()
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
+      {/* Header with New Chat button */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">AI Assistant</span>
+        <button
+          onClick={handleNewChat}
+          disabled={isLoading || messages.length === 0}
+          className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Start new chat"
+        >
+          <MessageSquarePlus className="h-3 w-3" />
+          New Chat
+        </button>
+      </div>
+
       {/* Quick Actions */}
       <div className="border-b border-border p-3">
         <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Actions</div>
@@ -408,8 +428,18 @@ function AgentTab() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
-        {/* Initial greeting if no messages */}
-        {messages.length === 0 && (
+        {/* Loading history indicator */}
+        {isLoadingHistory && (
+          <div className="flex justify-center">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading chat history...
+            </div>
+          </div>
+        )}
+
+        {/* Initial greeting if no messages and not loading */}
+        {!isLoadingHistory && messages.length === 0 && (
           <div className="flex justify-start">
             <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border">
               Hi! I&apos;m your AI editing assistant. I can split, trim, delete, move clips, and apply effects. Just tell me what you&apos;d like to do!

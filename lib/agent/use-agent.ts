@@ -12,6 +12,7 @@ import {
 } from "@/components/editor-context"
 import type { TimelineState } from "./system-prompt"
 import type { AgentAction } from "./tools"
+import { getChatSession, saveChatMessages, clearChatSession, type ChatMessage } from "@/lib/chat"
 
 // Tool call display info
 export type ToolCallInfo = {
@@ -64,6 +65,8 @@ function getToolDescription(toolName: string, input: Record<string, unknown>): s
     }
     case "applyEffect":
       return `Apply ${input.effect} effect`
+    case "applyChromakey":
+      return input.enabled ? `Enable chromakey (${input.keyColor || "green"})` : "Disable chromakey"
     case "addMediaToTimeline":
       return `Add media to track ${input.trackId}${input.startTimeSeconds !== undefined ? ` at ${input.startTimeSeconds}s` : ""}`
     default:
@@ -79,6 +82,12 @@ export function useVideoAgent() {
   const [input, setInput] = useState("")
   // Force re-render when tool calls complete
   const [, forceUpdate] = useState(0)
+
+  // Chat persistence state
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [savedMessages, setSavedMessages] = useState<ChatMessage[]>([])
+  const hasLoadedRef = useRef(false)
+  const lastSavedRef = useRef<string>("")
 
   // Build timeline state for the agent
   const getTimelineContext = useCallback((): TimelineState => {
@@ -570,15 +579,109 @@ export function useVideoAgent() {
     }
   })
 
+  // Load chat history on mount
+  useEffect(() => {
+    if (!editor.projectId || hasLoadedRef.current) return
+
+    const loadHistory = async () => {
+      setIsLoadingHistory(true)
+      try {
+        const { data, error } = await getChatSession(editor.projectId!)
+        if (error) {
+          console.error("Failed to load chat history:", error)
+        } else if (data?.messages && data.messages.length > 0) {
+          setSavedMessages(data.messages)
+        }
+      } catch (err) {
+        console.error("Error loading chat history:", err)
+      } finally {
+        setIsLoadingHistory(false)
+        hasLoadedRef.current = true
+      }
+    }
+
+    loadHistory()
+  }, [editor.projectId])
+
+  // Save chat messages when they change (debounced)
+  useEffect(() => {
+    if (!editor.projectId || !hasLoadedRef.current) return
+    if (displayMessages.length === 0) return
+    if (status === "streaming" || status === "submitted") return // Don't save while streaming
+
+    // Create a serializable version for comparison and storage
+    const messagesToSave: ChatMessage[] = displayMessages
+      .filter((m) => m.content.trim() || (m.toolCalls && m.toolCalls.length > 0))
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+        toolCalls: m.toolCalls,
+      }))
+
+    const serialized = JSON.stringify(messagesToSave)
+    if (serialized === lastSavedRef.current) return // No changes
+
+    const saveTimeout = setTimeout(async () => {
+      try {
+        const { error } = await saveChatMessages(editor.projectId!, messagesToSave)
+        if (error) {
+          console.error("Failed to save chat messages:", error)
+        } else {
+          lastSavedRef.current = serialized
+        }
+      } catch (err) {
+        console.error("Error saving chat messages:", err)
+      }
+    }, 1000) // Debounce 1 second
+
+    return () => clearTimeout(saveTimeout)
+  }, [displayMessages, editor.projectId, status])
+
+  // Clear chat and start new
+  const clearChat = useCallback(async () => {
+    if (!editor.projectId) return
+
+    try {
+      const { error } = await clearChatSession(editor.projectId)
+      if (error) {
+        console.error("Failed to clear chat:", error)
+        return
+      }
+
+      // Reset local state
+      setSavedMessages([])
+      processedToolCallsRef.current.clear()
+      toolCallInfoRef.current.clear()
+      lastSavedRef.current = ""
+
+      // Force page reload to reset useChat state
+      window.location.reload()
+    } catch (err) {
+      console.error("Error clearing chat:", err)
+    }
+  }, [editor.projectId])
+
+  // Combine saved messages with current messages for display
+  const allMessages = useMemo(() => {
+    // If we have messages from useChat, use those (they include any saved messages that were restored)
+    if (displayMessages.length > 0) {
+      return displayMessages
+    }
+    // Otherwise show saved messages from DB
+    return savedMessages
+  }, [displayMessages, savedMessages])
+
   return {
-    messages: displayMessages,
+    messages: allMessages,
     status, // expose status for more granular UI control
     input,
     setInput,
     handleInputChange,
     handleSubmit,
     isLoading,
+    isLoadingHistory,
     sendQuickAction,
+    clearChat,
     error,
   }
 }
