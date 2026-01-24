@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2 } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
@@ -374,19 +374,15 @@ function ClipsTab() {
 }
 
 function AgentTab() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction } = useVideoAgent()
+  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction, status } = useVideoAgent()
   const { selectedClipId, currentTime } = useEditor()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when messages change
-  const scrollToBottom = useCallback(() => {
+  // Auto-scroll to bottom when messages change or during streaming
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [])
-
-  // Scroll when messages update
-  useState(() => {
-    scrollToBottom()
-  })
+  }, [messages, status])
 
   const handleQuickAction = (action: string) => {
     sendQuickAction(action)
@@ -436,22 +432,35 @@ function AgentTab() {
           </div>
         )}
 
-        {messages.map((message, i) => (
-          <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground border border-border"
-              }`}
-            >
-              {message.content}
-            </div>
-          </div>
-        ))}
+        {messages.map((message, i) => {
+          const isLastMessage = i === messages.length - 1
+          const isStreaming = isLastMessage && message.role === "assistant" && status === "streaming"
+          const showContent = message.content || isStreaming
 
-        {/* Loading indicator */}
-        {isLoading && (
+          return (
+            <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                  message.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground border border-border"
+                }`}
+              >
+                {showContent ? (
+                  <>
+                    {message.content}
+                    {isStreaming && (
+                      <span className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70 animate-pulse" />
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* Loading indicator - only show when submitted but no streaming yet */}
+        {status === "submitted" && (
           <div className="flex justify-start">
             <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border flex items-center gap-2">
               <Loader2 className="h-3 w-3 animate-spin" />
