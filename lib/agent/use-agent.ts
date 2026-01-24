@@ -230,10 +230,13 @@ export function useVideoAgent() {
         case "APPLY_EFFECT": {
           const targetClip = editor.timelineClips.find((c) => c.id === action.payload.clipId)
           if (targetClip) {
+            // Use DEFAULT_CLIP_EFFECTS fallback to ensure all effect properties are present
+            const currentEffects = targetClip.effects ?? DEFAULT_CLIP_EFFECTS
+            console.log("[Agent] Applying effect:", action.payload.effect, "to clip:", action.payload.clipId)
             editor.updateClip(action.payload.clipId, {
               effects: {
-                ...targetClip.effects,
-                preset: action.payload.effect as typeof targetClip.effects.preset,
+                ...currentEffects,
+                preset: action.payload.effect as typeof currentEffects.preset,
               },
             })
           }
@@ -243,7 +246,9 @@ export function useVideoAgent() {
         case "APPLY_CHROMAKEY": {
           const targetClip = editor.timelineClips.find((c) => c.id === action.payload.clipId)
           if (targetClip) {
-            const currentChromakey = targetClip.effects.chromakey ?? {
+            // Use DEFAULT_CLIP_EFFECTS fallback to ensure all effect properties are present
+            const currentEffects = targetClip.effects ?? DEFAULT_CLIP_EFFECTS
+            const currentChromakey = currentEffects.chromakey ?? {
               enabled: false,
               keyColor: "#00FF00",
               similarity: 0.4,
@@ -251,9 +256,10 @@ export function useVideoAgent() {
               spill: 0.3,
             }
 
+            console.log("[Agent] Applying chromakey to clip:", action.payload.clipId, "enabled:", action.payload.enabled)
             editor.updateClip(action.payload.clipId, {
               effects: {
-                ...targetClip.effects,
+                ...currentEffects,
                 chromakey: {
                   enabled: action.payload.enabled,
                   keyColor: action.payload.keyColor ?? currentChromakey.keyColor,

@@ -492,10 +492,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, [saveToHistory])
 
   const updateClip = useCallback((id: string, updates: Partial<TimelineClip>) => {
+    console.log("[EditorContext] updateClip called:", id, updates)
     saveToHistory()
-    setTimelineClips((prev) =>
-      prev.map((clip) => (clip.id === id ? { ...clip, ...updates } : clip))
-    )
+    setTimelineClips((prev) => {
+      const newClips = prev.map((clip) => (clip.id === id ? { ...clip, ...updates } : clip))
+      console.log("[EditorContext] Updated clips, new effects:", newClips.find(c => c.id === id)?.effects)
+      return newClips
+    })
     setHasUnsavedChanges(true)
   }, [saveToHistory])
 

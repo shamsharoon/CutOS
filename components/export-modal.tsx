@@ -54,7 +54,8 @@ function buildFilterString(effects: ClipEffects): string {
       filters.push("contrast(130%)", "saturate(150%)")
       break
     case "ascii":
-      filters.push("brightness(115%)", "contrast(90%)", "saturate(120%)")
+      // Dreamy/Bloom effect - soft glow look
+      filters.push("brightness(115%)", "contrast(90%)", "saturate(120%)", "blur(0.5px)")
       break
   }
 
@@ -126,8 +127,19 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     canvas.width = 1920
     canvas.height = 1080
 
+    // Check if Canvas filter is supported
+    const supportsCanvasFilter = typeof ctx.filter !== 'undefined'
+    console.log("[Export] Canvas filter support:", supportsCanvasFilter)
+
     // Sort clips by start time
     const clips = [...sortedVideoClips].sort((a, b) => a.startTime - b.startTime)
+
+    // Debug: Log clip effects summary at export start
+    console.log("[Export] Starting export with", clips.length, "clips:")
+    clips.forEach((c, i) => {
+      const effects = c.effects ?? DEFAULT_CLIP_EFFECTS
+      console.log(`  [${i + 1}] ${c.label}: preset=${effects.preset}, brightness=${effects.brightness}%, contrast=${effects.contrast}%, blur=${effects.blur}px`)
+    })
 
     // Create and preload video elements for each clip
     const videoElements: Map<string, HTMLVideoElement> = new Map()
@@ -236,15 +248,33 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     recorder.start(100)
 
     // Track export state
-    let currentClipIndex = 0
+    let currentClipIndex = -1 // Start at -1 so first clip triggers initialization
     let exportStartTime = performance.now()
     let activeVideo: HTMLVideoElement | null = null
-    let frameCallbackId: number | null = null
+
+    // Track logged clips to avoid flooding console
+    const loggedClips = new Set<string>()
 
     // Helper to draw a frame to canvas
     const drawFrame = (video: HTMLVideoElement, clip: typeof clips[0]) => {
       const transform = clip.transform ?? DEFAULT_CLIP_TRANSFORM
       const effects = clip.effects ?? DEFAULT_CLIP_EFFECTS
+
+      // Debug: Log effects only once per clip
+      if (!loggedClips.has(clip.id)) {
+        const filterString = buildFilterString(effects)
+        console.log("[Export] Rendering clip:", clip.id, {
+          preset: effects.preset,
+          brightness: effects.brightness,
+          contrast: effects.contrast,
+          saturate: effects.saturate,
+          blur: effects.blur,
+          filterString: filterString || "(none)",
+          opacity: transform.opacity,
+          scale: transform.scale,
+        })
+        loggedClips.add(clip.id)
+      }
 
       // Clear canvas
       ctx.fillStyle = "#000000"
@@ -253,11 +283,9 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       // Save context state
       ctx.save()
 
-      // Apply filter if any
+      // Apply filter - build fresh for each frame to ensure it's applied
       const filterString = buildFilterString(effects)
-      if (filterString) {
-        ctx.filter = filterString
-      }
+      ctx.filter = filterString || "none"
 
       // Apply opacity
       ctx.globalAlpha = transform.opacity / 100
@@ -312,46 +340,8 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       return null
     }
 
-    // Start playing a clip
-    const startClip = async (clip: typeof clips[0]) => {
-      const video = videoElements.get(clip.id)
-      if (!video) return
-
-      // Stop previous video
-      if (activeVideo && activeVideo !== video) {
-        activeVideo.pause()
-      }
-
-      activeVideo = video
-
-      // Seek to correct position in the media
-      const clipStart = clip.startTime / PIXELS_PER_SECOND
-      const mediaOffset = clip.mediaOffset / PIXELS_PER_SECOND
-      const timelineTime = getTimelineTime()
-      const videoTime = mediaOffset + (timelineTime - clipStart)
-
-      video.currentTime = Math.max(mediaOffset, Math.min(videoTime, video.duration))
-
-      // Wait for seek to complete
-      await new Promise<void>(resolve => {
-        const onSeeked = () => {
-          video.removeEventListener('seeked', onSeeked)
-          resolve()
-        }
-        video.addEventListener('seeked', onSeeked)
-        setTimeout(resolve, 100)
-      })
-
-      // Start playback
-      try {
-        await video.play()
-      } catch (e) {
-        console.warn("Play failed:", e)
-      }
-    }
-
-    // Main render loop using requestVideoFrameCallback or requestAnimationFrame
-    const renderLoop = () => {
+    // Main render loop using requestAnimationFrame with explicit time sync
+    const renderLoop = async () => {
       if (abortRef.current) {
         if (activeVideo) activeVideo.pause()
         recorder.stop()
@@ -375,45 +365,59 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
       if (activeClipInfo) {
         const { clip, index } = activeClipInfo
-
-        // Check if we need to switch clips
-        if (index !== currentClipIndex) {
-          currentClipIndex = index
-          startClip(clip)
-        }
-
         const video = videoElements.get(clip.id)
+
         if (video && video.readyState >= 2) {
+          // Calculate expected video position
+          const clipStart = clip.startTime / PIXELS_PER_SECOND
+          const mediaOffset = clip.mediaOffset / PIXELS_PER_SECOND
+          const expectedVideoTime = mediaOffset + (timelineTime - clipStart)
+
+          // Check if we need to switch clips or sync position
+          const needsSwitch = index !== currentClipIndex
+          const drift = Math.abs(video.currentTime - expectedVideoTime)
+          const needsSync = drift > 0.1 // Sync if drifted more than 100ms
+
+          if (needsSwitch || needsSync) {
+            // Pause previous video if switching
+            if (needsSwitch && activeVideo && activeVideo !== video) {
+              activeVideo.pause()
+            }
+
+            currentClipIndex = index
+            activeVideo = video
+
+            // Sync video to correct position
+            video.currentTime = Math.max(mediaOffset, Math.min(expectedVideoTime, video.duration - 0.1))
+
+            // Start/resume playback
+            if (video.paused) {
+              try {
+                await video.play()
+              } catch (e) {
+                console.warn("Play failed:", e)
+              }
+            }
+          }
+
           drawFrame(video, clip)
         }
       } else {
         // No clip at this time, draw black
         ctx.fillStyle = "#000000"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        // Pause active video if we're in a gap
+        if (activeVideo && !activeVideo.paused) {
+          activeVideo.pause()
+        }
       }
 
       // Schedule next frame
-      if (supportsVideoFrameCallback && activeVideo) {
-        // Use requestVideoFrameCallback for frame-accurate timing
-        frameCallbackId = (activeVideo as any).requestVideoFrameCallback(
-          (_now: number, _metadata: VideoFrameCallbackMetadata) => {
-            renderLoop()
-          }
-        )
-      } else {
-        // Fallback to requestAnimationFrame
-        requestAnimationFrame(renderLoop)
-      }
+      requestAnimationFrame(renderLoop)
     }
 
-    // Start first clip and begin render loop
-    const firstClipInfo = findActiveClip(0)
-    if (firstClipInfo) {
-      await startClip(firstClipInfo.clip)
-      currentClipIndex = firstClipInfo.index
-    }
-
-    // Start the render loop
+    // Start the render loop - it will handle clip initialization
     exportStartTime = performance.now()
     renderLoop()
 

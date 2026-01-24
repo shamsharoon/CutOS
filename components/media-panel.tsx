@@ -945,6 +945,7 @@ function EffectsTab() {
 
   const handlePresetChange = (preset: EffectPreset) => {
     if (!selectedClipId) return
+    console.log("[Effects] Changing preset for clip:", selectedClipId, "from", effects.preset, "to", preset)
     updateClip(selectedClipId, {
       effects: { ...effects, preset }
     })
@@ -952,6 +953,7 @@ function EffectsTab() {
 
   const handleEffectChange = (key: keyof ClipEffects, value: number) => {
     if (!selectedClipId) return
+    console.log("[Effects] Changing", key, "for clip:", selectedClipId, "to", value)
     updateClip(selectedClipId, {
       effects: { ...effects, [key]: value }
     })
