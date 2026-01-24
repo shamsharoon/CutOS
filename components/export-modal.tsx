@@ -169,15 +169,46 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
 
     // Setup MediaRecorder with supported codec
-    let mimeType = "video/webm;codecs=vp9"
+    let mimeType = "video/webm;codecs=vp9,opus"
     if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = "video/webm;codecs=vp8"
+      mimeType = "video/webm;codecs=vp8,opus"
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = "video/webm"
       }
     }
 
     const stream = canvas.captureStream(30)
+
+    // Setup audio capture using Web Audio API
+    let audioContext: AudioContext | null = null
+    let audioDestination: MediaStreamAudioDestinationNode | null = null
+    const audioSources: Map<string, MediaElementAudioSourceNode> = new Map()
+
+    try {
+      audioContext = new AudioContext()
+      audioDestination = audioContext.createMediaStreamDestination()
+
+      // Create audio sources for each video element
+      // Connect to Web Audio BEFORE unmuting to prevent audio leak to speakers
+      for (const [clipId, video] of videoElements) {
+        const source = audioContext.createMediaElementSource(video)
+        source.connect(audioDestination)
+        audioSources.set(clipId, source)
+
+        // Now unmute - audio will only flow through Web Audio graph, not speakers
+        video.muted = false
+        video.volume = 1
+      }
+
+      // Add audio track to the stream
+      const audioTracks = audioDestination.stream.getAudioTracks()
+      if (audioTracks.length > 0) {
+        stream.addTrack(audioTracks[0])
+      }
+    } catch (e) {
+      console.warn("Could not setup audio capture:", e)
+      // Continue without audio if it fails
+    }
 
     const recorder = new MediaRecorder(stream, {
       mimeType,
@@ -406,6 +437,14 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }
     } finally {
       setIsExporting(false)
+      // Cleanup audio context
+      if (audioContext) {
+        try {
+          await audioContext.close()
+        } catch (e) {
+          console.warn("Error closing audio context:", e)
+        }
+      }
       // Cleanup video elements
       videoElements.forEach(video => {
         video.pause()
