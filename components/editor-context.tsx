@@ -67,19 +67,32 @@ interface EditorContextType {
   // Project
   projectId: string | null
   setProjectId: (id: string | null) => void
+  projectResolution: string | null // Project resolution (e.g., "1920x1080")
+  setProjectResolution: (resolution: string | null) => void
   
   // Media pool
   mediaFiles: MediaFile[]
   addMediaFiles: (files: MediaFile[]) => void
   removeMediaFile: (id: string) => void
-  
+
   // Timeline
   timelineClips: TimelineClip[]
   addClipToTimeline: (clip: TimelineClip) => void
   updateClip: (id: string, updates: Partial<TimelineClip>) => void
   removeClip: (id: string) => void
   splitClip: (clipId: string, splitTime: number) => void // Split a clip at the given timeline time (in seconds)
-  
+
+  // Undo/Redo
+  undo: () => void
+  redo: () => void
+  canUndo: boolean
+  canRedo: boolean
+
+  // Copy/Paste
+  copyClip: (clipId: string) => void
+  pasteClip: () => void
+  canPaste: boolean
+
   // Playback
   selectedClipId: string | null
   setSelectedClipId: (id: string | null) => void
@@ -87,38 +100,42 @@ interface EditorContextType {
   setCurrentTime: (time: number) => void
   isPlaying: boolean
   setIsPlaying: (playing: boolean) => void
-  
+  isScrubbing: boolean
+  setIsScrubbing: (scrubbing: boolean) => void
+
   // Get media for a clip
   getMediaForClip: (clipId: string) => MediaFile | undefined
-  
+
   // Currently previewing media (from selection or playhead)
   previewMedia: MediaFile | null
   activeClip: TimelineClip | null // The clip currently at playhead
+  backgroundClip: TimelineClip | null // The clip below activeClip (for chromakey compositing)
   clipTimeOffset: number // How far into the active clip we are (in seconds)
+  backgroundClipTimeOffset: number // How far into the background clip we are (in seconds)
   
   // Timeline end time (for stopping playback)
   timelineEndTime: number
-  
+
   // Sorted video clips for playback
   sortedVideoClips: TimelineClip[]
-  
+
   // Load state from saved data
   loadTimelineData: (data: TimelineData | null) => void
-  
+
   // Save state
   saveProject: () => Promise<void>
   isSaving: boolean
   hasUnsavedChanges: boolean
-  
+
   // Thumbnail
   setProjectThumbnail: (thumbnail: string) => void
-  
+
   // Color picker eyedropper
   isEyedropperActive: boolean
   setIsEyedropperActive: (active: boolean) => void
   onColorSampled?: (r: number, g: number, b: number) => void
   setColorSampledCallback: (callback: ((r: number, g: number, b: number) => void) | undefined) => void
-  
+
   // Captions
   generateCaptions: (mediaId: string, options?: { language?: string; prompt?: string }) => Promise<void>
   updateMediaCaptions: (mediaId: string, captions: Caption[]) => void
@@ -136,11 +153,13 @@ const EditorContext = createContext<EditorContextType | null>(null)
 
 export function EditorProvider({ children }: { children: ReactNode }) {
   const [projectId, setProjectId] = useState<string | null>(null)
+  const [projectResolution, setProjectResolution] = useState<string | null>(null)
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([])
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0) // Time in seconds
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isScrubbing, setIsScrubbing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [projectThumbnail, setProjectThumbnail] = useState<string | null>(null)
   const [isEyedropperActive, setIsEyedropperActive] = useState(false)
@@ -148,13 +167,120 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showCaptions, setShowCaptions] = useState(true)
   const [captionStyle, setCaptionStyle] = useState<"classic" | "tiktok">("tiktok")
-  
+
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Undo/Redo history
+  const historyRef = useRef<TimelineClip[][]>([])
+  const historyIndexRef = useRef<number>(-1)
+  const copiedClipRef = useRef<TimelineClip | null>(null)
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
+
+  // Update history state
+  const updateHistoryState = useCallback(() => {
+    const history = historyRef.current
+    const index = historyIndexRef.current
+    setHistoryState({
+      canUndo: history.length > 0 && index > 0,
+      canRedo: index < history.length - 1
+    })
+  }, [])
+
+  // Save state to history before making changes
+  const saveToHistory = useCallback(() => {
+    const currentState = [...timelineClips]
+    const history = historyRef.current
+    const index = historyIndexRef.current
+
+    // Remove any future history if we're not at the end
+    if (index < history.length - 1) {
+      history.splice(index + 1)
+    }
+
+    // Add new state
+    history.push(JSON.parse(JSON.stringify(currentState)))
+    historyIndexRef.current = history.length - 1
+
+    // Limit history size to 50
+    if (history.length > 50) {
+      history.shift()
+      historyIndexRef.current = history.length - 1
+    }
+
+    updateHistoryState()
+  }, [timelineClips, updateHistoryState])
+
+  // Undo
+  const undo = useCallback(() => {
+    const history = historyRef.current
+    const index = historyIndexRef.current
+
+    if (index > 0) {
+      historyIndexRef.current = index - 1
+      const previousState = history[index - 1]
+      setTimelineClips(JSON.parse(JSON.stringify(previousState)))
+      setHasUnsavedChanges(true)
+      updateHistoryState()
+    }
+  }, [updateHistoryState])
+
+  // Redo
+  const redo = useCallback(() => {
+    const history = historyRef.current
+    const index = historyIndexRef.current
+
+    if (index < history.length - 1) {
+      historyIndexRef.current = index + 1
+      const nextState = history[index + 1]
+      setTimelineClips(JSON.parse(JSON.stringify(nextState)))
+      setHasUnsavedChanges(true)
+      updateHistoryState()
+    }
+  }, [updateHistoryState])
+
+  const canUndo = historyState.canUndo
+  const canRedo = historyState.canRedo
+
+  // Copy clip
+  const copyClip = useCallback((clipId: string) => {
+    const clip = timelineClips.find(c => c.id === clipId)
+    if (clip) {
+      copiedClipRef.current = JSON.parse(JSON.stringify(clip))
+      setCanPasteState(true)
+    }
+  }, [timelineClips])
+
+  // Paste clip
+  const pasteClip = useCallback(() => {
+    const copied = copiedClipRef.current
+    if (!copied) return
+
+    saveToHistory()
+
+    const newClip: TimelineClip = {
+      ...JSON.parse(JSON.stringify(copied)),
+      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      startTime: currentTime * PIXELS_PER_SECOND, // Paste at current playhead position
+    }
+
+    setTimelineClips(prev => [...prev, newClip])
+    setSelectedClipId(newClip.id)
+    setHasUnsavedChanges(true)
+  }, [currentTime, saveToHistory])
+
+  const [canPasteState, setCanPasteState] = useState(false)
+
+  // Update canPaste state
+  useEffect(() => {
+    setCanPasteState(copiedClipRef.current !== null)
+  }, [timelineClips]) // Re-check when clips change
+
+  const canPaste = canPasteState
 
   // Function to index a video to TwelveLabs (called after upload)
   const indexToTwelveLabs = useCallback(async (mediaId: string, storageUrl: string, fileName: string) => {
     if (!projectId) return
-    
+
     try {
       // Mark as pending indexing
       setMediaFiles((prev) =>
@@ -162,7 +288,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           m.id === mediaId ? { ...m, twelveLabsStatus: "pending" as const } : m
         )
       )
-      
+
       const response = await fetch("/api/twelvelabs/index", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -173,23 +299,23 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           mediaId,
         }),
       })
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
         const errorMessage = errorData.error || "Failed to index video"
         console.error(`TwelveLabs index error for "${fileName}":`, errorMessage)
         setMediaFiles((prev) =>
           prev.map((m) =>
-            m.id === mediaId 
-              ? { ...m, twelveLabsStatus: "failed" as const, twelveLabsError: errorMessage } 
+            m.id === mediaId
+              ? { ...m, twelveLabsStatus: "failed" as const, twelveLabsError: errorMessage }
               : m
           )
         )
         return
       }
-      
+
       const data = await response.json()
-      
+
       // Update with TwelveLabs info and start polling for status
       setMediaFiles((prev) =>
         prev.map((m) =>
@@ -204,7 +330,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         )
       )
       setHasUnsavedChanges(true)
-      
+
       // Poll for indexing completion
       pollTwelveLabsStatus(mediaId, data.indexId, data.videoId)
     } catch (error) {
@@ -216,32 +342,32 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       )
     }
   }, [projectId])
-  
+
   // Poll for TwelveLabs indexing status
   const pollTwelveLabsStatus = useCallback(async (mediaId: string, indexId: string, videoId: string) => {
     const maxAttempts = 60 // 5 minutes at 5-second intervals
     let attempts = 0
-    
+
     const poll = async () => {
       if (attempts >= maxAttempts) {
         console.warn("TwelveLabs indexing timeout for media:", mediaId)
         return
       }
-      
+
       try {
         const response = await fetch("/api/twelvelabs/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ indexId, videoId }),
         })
-        
+
         if (!response.ok) {
           console.error("TwelveLabs status check failed")
           return
         }
-        
+
         const data = await response.json()
-        
+
         if (data.status === "ready") {
           setMediaFiles((prev) =>
             prev.map((m) =>
@@ -258,7 +384,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           )
           return
         }
-        
+
         // Still indexing, poll again
         attempts++
         setTimeout(poll, 5000) // Poll every 5 seconds
@@ -266,42 +392,52 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         console.error("TwelveLabs status polling error:", error)
       }
     }
-    
+
     // Start polling after a brief delay
     setTimeout(poll, 3000)
   }, [])
 
   const addMediaFiles = useCallback(async (files: MediaFile[]) => {
     // Add files immediately with uploading state
-    const filesWithUploading = files.map(f => ({ ...f, isUploading: true }))
+    const filesWithUploading = files.map(f => ({ ...f, isUploading: !!projectId }))
     setMediaFiles((prev) => [...prev, ...filesWithUploading])
     setHasUnsavedChanges(true)
-    
-    // Upload each file to storage
+
+    // Upload each file to storage if project exists
     if (projectId) {
       for (const file of files) {
         if (file.file) {
-          const { data, error } = await uploadMediaFile(projectId, file.file)
-          if (data && !error) {
-            // Update the media file with storage info
-            setMediaFiles((prev) =>
-              prev.map((m) =>
-                m.id === file.id
-                  ? {
+          try {
+            const { data, error } = await uploadMediaFile(projectId, file.file)
+            if (data && !error) {
+              // Update the media file with storage info
+              setMediaFiles((prev) =>
+                prev.map((m) =>
+                  m.id === file.id
+                    ? {
                       ...m,
                       storagePath: data.path,
                       storageUrl: data.url,
                       isUploading: false,
                     }
-                  : m
+                    : m
+                )
               )
-            )
-            
-            // Auto-index to TwelveLabs for NLP search (async, non-blocking)
-            indexToTwelveLabs(file.id, data.url, file.name)
-          } else {
-            console.error("Failed to upload file:", file.name, error)
-            // Mark as not uploading even on error
+
+              // Auto-index to TwelveLabs for NLP search (async, non-blocking)
+              indexToTwelveLabs(file.id, data.url, file.name)
+            } else {
+              console.error("Failed to upload file:", file.name, error)
+              // Mark as not uploading even on error
+              setMediaFiles((prev) =>
+                prev.map((m) =>
+                  m.id === file.id ? { ...m, isUploading: false } : m
+                )
+              )
+            }
+          } catch (err) {
+            console.error("Error uploading file:", file.name, err)
+            // Mark as not uploading on exception
             setMediaFiles((prev) =>
               prev.map((m) =>
                 m.id === file.id ? { ...m, isUploading: false } : m
@@ -326,30 +462,51 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, [mediaFiles, indexToTwelveLabs])
 
   const removeMediaFile = useCallback((id: string) => {
+    // Save to history before making changes (for undo/redo)
+    saveToHistory()
+
+    // Remove the media file
     setMediaFiles((prev) => prev.filter((f) => f.id !== id))
+
+    // Find and remove all timeline clips that reference this media
+    setTimelineClips((prev) => {
+      const clipsToRemove = prev.filter((clip) => clip.mediaId === id)
+
+      // If the selected clip is being removed, clear the selection
+      if (clipsToRemove.some((clip) => clip.id === selectedClipId)) {
+        setSelectedClipId(null)
+      }
+
+      // Return clips that don't reference the deleted media
+      return prev.filter((clip) => clip.mediaId !== id)
+    })
+
     setHasUnsavedChanges(true)
-  }, [])
+  }, [saveToHistory, selectedClipId])
 
   const addClipToTimeline = useCallback((clip: TimelineClip) => {
+    saveToHistory()
     setTimelineClips((prev) => [...prev, clip])
     setSelectedClipId(clip.id)
     setHasUnsavedChanges(true)
-  }, [])
+  }, [saveToHistory])
 
   const updateClip = useCallback((id: string, updates: Partial<TimelineClip>) => {
+    saveToHistory()
     setTimelineClips((prev) =>
       prev.map((clip) => (clip.id === id ? { ...clip, ...updates } : clip))
     )
     setHasUnsavedChanges(true)
-  }, [])
+  }, [saveToHistory])
 
   const removeClip = useCallback((id: string) => {
+    saveToHistory()
     setTimelineClips((prev) => prev.filter((c) => c.id !== id))
     if (selectedClipId === id) {
       setSelectedClipId(null)
     }
     setHasUnsavedChanges(true)
-  }, [selectedClipId])
+  }, [selectedClipId, saveToHistory])
 
   // Split a clip at the given timeline time (in seconds)
   const splitClip = useCallback((clipId: string, splitTime: number) => {
@@ -362,6 +519,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
     // Check if split point is within the clip
     if (splitPositionPixels <= clipStart || splitPositionPixels >= clipEnd) return
+
+    saveToHistory()
 
     // Calculate durations for the two new clips
     const firstClipDuration = splitPositionPixels - clipStart
@@ -406,7 +565,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Load timeline data from saved project
   const loadTimelineData = useCallback((data: TimelineData | null) => {
     if (!data) return
-    
+
     // Restore clips
     const restoredClips: TimelineClip[] = data.clips.map((clip: TimelineClipData) => ({
       id: clip.id,
@@ -420,7 +579,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       transform: clip.transform ?? DEFAULT_CLIP_TRANSFORM,
       effects: clip.effects ?? DEFAULT_CLIP_EFFECTS,
     }))
-    
+
     // Restore media files from storage URLs
     const restoredMedia: MediaFile[] = data.media.map((m: MediaFileData) => ({
       id: m.id,
@@ -440,7 +599,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       twelveLabsIndexId: m.twelveLabsIndexId,
       twelveLabsStatus: m.twelveLabsStatus,
     }))
-    
+
     setMediaFiles(restoredMedia)
     setTimelineClips(restoredClips)
     setHasUnsavedChanges(false)
@@ -449,9 +608,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Save project to Supabase
   const saveProject = useCallback(async () => {
     if (!projectId) return
-    
+
     setIsSaving(true)
-    
+
     // Prepare timeline data (only save media that has been uploaded)
     const timelineData: TimelineData = {
       clips: timelineClips.map((clip): TimelineClipData => ({
@@ -484,24 +643,24 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           twelveLabsStatus: m.twelveLabsStatus,
         })),
     }
-    
+
     // Calculate duration
     const totalDuration = timelineClips.reduce((max, clip) => {
       const clipEnd = (clip.startTime + clip.duration) / PIXELS_PER_SECOND
       return Math.max(max, clipEnd)
     }, 0)
-    
+
     const hours = Math.floor(totalDuration / 3600)
     const minutes = Math.floor((totalDuration % 3600) / 60)
     const seconds = Math.floor(totalDuration % 60)
     const durationStr = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
-    
+
     await updateProject(projectId, {
       timeline_data: timelineData,
       duration: durationStr,
       thumbnail: projectThumbnail,
     })
-    
+
     setHasUnsavedChanges(false)
     setIsSaving(false)
   }, [projectId, timelineClips, mediaFiles, projectThumbnail])
@@ -509,15 +668,15 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Auto-save with debounce
   useEffect(() => {
     if (!projectId || !hasUnsavedChanges) return
-    
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
-    
+
     saveTimeoutRef.current = setTimeout(() => {
       saveProject()
     }, 2000) // Auto-save after 2 seconds of inactivity
-    
+
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
@@ -539,28 +698,50 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     return Math.max(max, clipEnd)
   }, 0)
 
-  // Clamp currentTime if it's past the timeline end (e.g., after deleting clips)
+  // Only clamp currentTime during playback (not while scrubbing)
+  // Allow manual scrubbing past the timeline end
   useEffect(() => {
+    if (isScrubbing || !isPlaying) return // Don't clamp while scrubbing or when not playing
+
+    // Only clamp during playback - stop playback at timeline end
     if (timelineEndTime > 0 && currentTime > timelineEndTime) {
       setCurrentTime(timelineEndTime)
+      setIsPlaying(false)
     } else if (timelineEndTime === 0 && currentTime > 0) {
       // No clips left, reset to 0
       setCurrentTime(0)
     }
-  }, [timelineEndTime, currentTime])
+  }, [timelineEndTime, currentTime, isScrubbing, isPlaying, setIsPlaying])
 
   // Find clip under the playhead
-  const activeClip = sortedVideoClips.find(
+  // When multiple clips overlap, prioritize the topmost track (V2 > V1 > A2 > A1)
+  const tracks = ["V2", "V1", "A2", "A1"]
+  const clipsAtPlayhead = sortedVideoClips.filter(
     (clip) =>
       playheadPixels >= clip.startTime &&
       playheadPixels < clip.startTime + clip.duration
-  ) ?? null
+  )
+  
+  // Sort clips by track (topmost first)
+  const sortedClipsAtPlayhead = [...clipsAtPlayhead].sort((a, b) => {
+    const aIndex = tracks.indexOf(a.trackId)
+    const bIndex = tracks.indexOf(b.trackId)
+    return aIndex - bIndex // Lower index = higher track = comes first
+  })
+  
+  const activeClip = sortedClipsAtPlayhead.length > 0 ? sortedClipsAtPlayhead[0] : null
+  const backgroundClip = sortedClipsAtPlayhead.length > 1 ? sortedClipsAtPlayhead[1] : null
 
   // Calculate how far into the active clip we are (in seconds)
   // Calculate how far into the source media we should be
   // This accounts for both the position on the timeline AND the clip's mediaOffset (for split clips)
   const clipTimeOffset = activeClip
     ? ((playheadPixels - activeClip.startTime) + activeClip.mediaOffset) / PIXELS_PER_SECOND
+    : 0
+  
+  // Calculate how far into the background clip we are (in seconds)
+  const backgroundClipTimeOffset = backgroundClip
+    ? ((playheadPixels - backgroundClip.startTime) + backgroundClip.mediaOffset) / PIXELS_PER_SECOND
     : 0
 
   // Determine preview media based on selection or active clip
@@ -569,12 +750,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     if (selectedClipId && !isPlaying) {
       return getMediaForClip(selectedClipId) ?? null
     }
-    
+
     // Otherwise use active clip under playhead
     if (activeClip) {
       return mediaFiles.find((m) => m.id === activeClip.mediaId) ?? null
     }
-    
+
     return null
   })()
 
@@ -610,7 +791,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await response.json()
-      
+
       // Update media with captions
       setMediaFiles((prev) =>
         prev.map((m) =>
@@ -664,6 +845,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       value={{
         projectId,
         setProjectId,
+        projectResolution,
+        setProjectResolution: setProjectResolution,
         mediaFiles,
         addMediaFiles,
         removeMediaFile,
@@ -672,16 +855,27 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         updateClip,
         removeClip,
         splitClip,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
+        copyClip,
+        pasteClip,
+        canPaste,
         selectedClipId,
         setSelectedClipId,
         currentTime,
         setCurrentTime,
         isPlaying,
         setIsPlaying,
+        isScrubbing,
+        setIsScrubbing,
         getMediaForClip,
         previewMedia,
         activeClip,
+        backgroundClip,
         clipTimeOffset,
+        backgroundClipTimeOffset,
         timelineEndTime,
         sortedVideoClips,
         loadTimelineData,

@@ -2,7 +2,9 @@
 
 import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Video, Volume2, Lock, Eye, Film, Trash2 } from "lucide-react"
+import { Video, Volume2, Lock, Eye, Film, Trash2, Scissors, Undo2, Redo2, Copy, Clipboard } from "lucide-react"
+import { motion } from "framer-motion"
+import { Button } from "@/components/ui/button"
 import { useEditor, TimelineClip, PIXELS_PER_SECOND, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 
 export function Timeline() {
@@ -17,7 +19,43 @@ export function Timeline() {
     currentTime,
     setCurrentTime,
     isPlaying,
+    setIsPlaying,
+    timelineEndTime,
+    isScrubbing,
+    setIsScrubbing,
+    activeClip,
+    splitClip,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    copyClip,
+    pasteClip,
+    canPaste,
   } = useEditor()
+
+  // Editing actions
+  const handleCut = () => {
+    if (activeClip) {
+      splitClip(activeClip.id, currentTime)
+    }
+  }
+
+  const handleDelete = () => {
+    if (selectedClipId) {
+      removeClip(selectedClipId)
+    } else if (activeClip) {
+      removeClip(activeClip.id)
+    }
+  }
+
+  const handleCopy = () => {
+    if (selectedClipId) {
+      copyClip(selectedClipId)
+    } else if (activeClip) {
+      copyClip(activeClip.id)
+    }
+  }
 
   // Local state for smooth playhead animation
   const [localPlayheadPosition, setLocalPlayheadPosition] = useState(currentTime * PIXELS_PER_SECOND)
@@ -61,8 +99,9 @@ export function Timeline() {
   const [draggedClip, setDraggedClip] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState(0)
   const [dropTargetTrack, setDropTargetTrack] = useState<string | null>(null)
-  const [isScrubbing, setIsScrubbing] = useState(false)
   const timelineRef = useRef<HTMLDivElement>(null)
+
+  const tracks = ["V2", "V1", "A2", "A1"]
 
   const handleClipMouseDown = (e: React.MouseEvent, clipId: string) => {
     e.stopPropagation()
@@ -78,13 +117,43 @@ export function Timeline() {
 
     const timelineRect = timelineRef.current.getBoundingClientRect()
     const relativeX = e.clientX - timelineRect.left - dragOffset - 96 // Subtract track label width
+    const relativeY = e.clientY - timelineRect.top
 
       // Snap to grid (every 10px = 1 second)
     const snappedX = Math.max(0, Math.round(relativeX / 10) * 10)
 
-      updateClip(draggedClip, { startTime: snappedX })
+    // Calculate which track the mouse is over
+    // Track height is 48px (h-12), ruler is 24px (h-6)
+    const TRACK_HEIGHT = 48
+    const RULER_HEIGHT = 24
+    const trackIndex = Math.floor((relativeY - RULER_HEIGHT) / TRACK_HEIGHT)
+    
+    // Get the dragged clip to check its type
+    const clip = timelineClips.find(c => c.id === draggedClip)
+    if (!clip) return
+
+    // Determine the target track based on Y position
+    let targetTrackId: string | null = null
+    if (trackIndex >= 0 && trackIndex < tracks.length) {
+      const targetTrack = tracks[trackIndex]
+      // Only allow moving to compatible tracks (video clips to video tracks, audio clips to audio tracks)
+      const isVideoTrack = targetTrack.startsWith("V")
+      const isVideoClip = clip.type === "video"
+      
+      if ((isVideoClip && isVideoTrack) || (!isVideoClip && !isVideoTrack)) {
+        targetTrackId = targetTrack
+      }
+    }
+
+    // Update clip position and track if valid
+    const updates: Partial<TimelineClip> = { startTime: snappedX }
+    if (targetTrackId && targetTrackId !== clip.trackId) {
+      updates.trackId = targetTrackId
+    }
+
+    updateClip(draggedClip, updates)
     },
-    [draggedClip, dragOffset, updateClip]
+    [draggedClip, dragOffset, updateClip, timelineClips, tracks]
     )
 
   const handleMouseUp = useCallback(() => {
@@ -204,27 +273,42 @@ export function Timeline() {
     (e: React.MouseEvent) => {
       if (!timelineRef.current) return
       
+      // Prevent text selection during drag
+      e.preventDefault()
+      e.stopPropagation()
+      
       // Check if we clicked on a clip
       const target = e.target as HTMLElement
       if (target.closest("[data-clip-id]")) return
 
       const newTime = getTimeFromMouseEvent(e)
       if (newTime !== null) {
-        setCurrentTime(newTime)
+        // Pause playback if playing
+        if (isPlaying) {
+          setIsPlaying(false)
+        }
+        // Allow dragging past the timeline end
+        const clampedTime = Math.max(0, newTime)
+        setCurrentTime(clampedTime)
         setSelectedClipId(null)
         setIsScrubbing(true)
       }
     },
-    [setCurrentTime, setSelectedClipId, getTimeFromMouseEvent]
+    [setCurrentTime, setSelectedClipId, getTimeFromMouseEvent, setIsScrubbing, isPlaying, setIsPlaying]
   )
 
   // Handle scrubbing mousemove
   const handleScrubMove = useCallback(
     (e: MouseEvent) => {
       if (!isScrubbing) return
+      // Prevent text selection and default behaviors during drag
+      e.preventDefault()
+      e.stopPropagation()
       const newTime = getTimeFromMouseEvent(e)
       if (newTime !== null) {
-        setCurrentTime(newTime)
+        // Allow dragging past the timeline end
+        const clampedTime = Math.max(0, newTime)
+        setCurrentTime(clampedTime)
       }
     },
     [isScrubbing, setCurrentTime, getTimeFromMouseEvent]
@@ -238,9 +322,28 @@ export function Timeline() {
   // Add/remove scrubbing event listeners
   useEffect(() => {
     if (isScrubbing) {
+      // Prevent text selection globally during scrubbing
+      const originalUserSelect = document.body.style.userSelect
+      const originalCursor = document.body.style.cursor
+      const originalWebkitUserSelect = (document.body.style as any).webkitUserSelect
+      
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'ew-resize'
+      ;(document.body.style as any).webkitUserSelect = 'none'
+      
+      // Also prevent selection on the document
+      const preventSelect = (e: Event) => e.preventDefault()
+      document.addEventListener('selectstart', preventSelect)
+      document.addEventListener('dragstart', preventSelect)
+      
       window.addEventListener("mousemove", handleScrubMove)
       window.addEventListener("mouseup", handleScrubEnd)
       return () => {
+        document.body.style.userSelect = originalUserSelect
+        document.body.style.cursor = originalCursor
+        ;(document.body.style as any).webkitUserSelect = originalWebkitUserSelect
+        document.removeEventListener('selectstart', preventSelect)
+        document.removeEventListener('dragstart', preventSelect)
         window.removeEventListener("mousemove", handleScrubMove)
         window.removeEventListener("mouseup", handleScrubEnd)
       }
@@ -262,14 +365,89 @@ export function Timeline() {
     return `${m}:${s.toString().padStart(2, "0")}`
   }
 
-  const tracks = ["V2", "V1", "A2", "A1"]
-
   return (
     <div className="flex h-full flex-col">
       {/* Timeline Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
-        <div className="text-xs font-medium text-foreground">Timeline</div>
+          <div className="text-xs font-medium text-foreground">Timeline</div>
+          {/* Editing Toolbar */}
+          <div className="flex items-center gap-1 border-l border-border pl-3 ml-3">
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleCut}
+                disabled={!activeClip}
+                title="Split clip at playhead (S)"
+              >
+                <Scissors className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleDelete}
+                disabled={!selectedClipId && !activeClip}
+                title="Delete clip (Delete)"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <div className="w-px h-3 bg-border mx-0.5" />
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={undo}
+                disabled={!canUndo}
+                title="Undo (Ctrl+Z / Cmd+Z)"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={redo}
+                disabled={!canRedo}
+                title="Redo (Ctrl+Shift+Z / Cmd+Shift+Z)"
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <div className="w-px h-3 bg-border mx-0.5" />
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleCopy}
+                disabled={!selectedClipId && !activeClip}
+                title="Copy clip (Ctrl+C / Cmd+C)"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={pasteClip}
+                disabled={!canPaste}
+                title="Paste clip (Ctrl+V / Cmd+V)"
+              >
+                <Clipboard className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+          </div>
           <div className="font-mono text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded">
             {formatRulerTime(currentTime)}
           </div>
@@ -313,8 +491,14 @@ export function Timeline() {
         {/* Timeline Grid */}
         <div
           ref={timelineRef}
-          className={`relative flex-1 overflow-x-auto scrollbar-thin ${isScrubbing ? "cursor-ew-resize" : ""}`}
+          className={`relative flex-1 overflow-x-auto scrollbar-thin select-none ${isScrubbing ? "cursor-ew-resize" : ""}`}
           onMouseDown={handleTimelineMouseDown}
+          style={{ 
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            MozUserSelect: 'none',
+            msUserSelect: 'none'
+          } as React.CSSProperties}
         >
           {/* Time Ruler - 80px = 8 seconds at 10px/second */}
           <div className="sticky top-0 z-10 flex h-6 border-b border-border bg-card">
@@ -420,9 +604,20 @@ export function Timeline() {
             >
               {/* Draggable playhead handle */}
               <div 
-                className="absolute -top-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-red-500 ring-2 ring-background shadow-lg cursor-ew-resize hover:scale-125 transition-transform"
+                className="absolute -top-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-red-500 ring-2 ring-background shadow-lg cursor-ew-resize hover:scale-125 transition-transform select-none"
                 onMouseDown={(e) => {
                   e.stopPropagation()
+                  e.preventDefault() // Prevent text selection
+                  // Pause playback if playing
+                  if (isPlaying) {
+                    setIsPlaying(false)
+                  }
+                  const newTime = getTimeFromMouseEvent(e)
+                  if (newTime !== null) {
+                    // Allow dragging past the timeline end
+                    const clampedTime = Math.max(0, newTime)
+                    setCurrentTime(clampedTime)
+                  }
                   setIsScrubbing(true)
                 }}
               />

@@ -2,17 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus, Clock, Zap, GripVertical } from "lucide-react"
-import { useEditor, MediaFile } from "./editor-context"
-import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Film, FolderOpen, Search, Upload, X, Play, Loader2, Cloud, CloudOff, Wand2, Eye, EyeOff, Captions, AlertCircle, Clock, Zap, GripVertical } from "lucide-react"
+import { useEditor, MediaFile, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
+import type { EffectPreset, ClipEffects, ClipTransform } from "@/lib/projects"
+import type { TimelineClip } from "./editor-context"
+import { ColorPicker } from "./ui/color-picker"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 
 
 export function MediaPanel() {
@@ -21,7 +16,7 @@ export function MediaPanel() {
 
   const tabs = [
     { id: "media", label: "Media", icon: FolderOpen },
-    { id: "agent", label: "Agent", icon: Sparkles },
+    { id: "effects", label: "Effects", icon: Wand2 },
   ]
 
   return (
@@ -53,9 +48,8 @@ export function MediaPanel() {
               <motion.button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -107,16 +101,16 @@ export function MediaPanel() {
               />
             </motion.div>
           )}
-          {activeTab === "agent" && (
+          {activeTab === "effects" && (
             <motion.div
-              key="agent"
+              key="effects"
               className="h-full"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
             >
-              <AgentTab />
+              <EffectsTab />
             </motion.div>
           )}
         </AnimatePresence>
@@ -269,11 +263,19 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
       video.muted = true
       video.playsInline = true
 
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        console.warn("Thumbnail generation timeout for:", file.name)
+        URL.revokeObjectURL(video.src)
+        resolve(null)
+      }, 10000)
+
       video.onloadeddata = () => {
         video.currentTime = 1 // Seek to 1 second for thumbnail
       }
 
       video.onseeked = () => {
+        clearTimeout(timeout)
         const canvas = document.createElement("canvas")
         canvas.width = video.videoWidth
         canvas.height = video.videoHeight
@@ -288,6 +290,8 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
       }
 
       video.onerror = () => {
+        clearTimeout(timeout)
+        console.error("Error loading video for thumbnail:", file.name)
         resolve(null)
         URL.revokeObjectURL(video.src)
       }
@@ -307,12 +311,22 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
       const video = document.createElement("video")
       video.preload = "metadata"
 
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        console.warn("Duration loading timeout for:", file.name)
+        URL.revokeObjectURL(video.src)
+        resolve({ formatted: "00:00", seconds: 0 })
+      }, 10000)
+
       video.onloadedmetadata = () => {
+        clearTimeout(timeout)
         resolve({ formatted: formatDuration(video.duration), seconds: video.duration })
         URL.revokeObjectURL(video.src)
       }
 
       video.onerror = () => {
+        clearTimeout(timeout)
+        console.error("Error loading video metadata:", file.name)
         resolve({ formatted: "00:00", seconds: 0 })
         URL.revokeObjectURL(video.src)
       }
@@ -323,31 +337,55 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
 
   const processFiles = useCallback(
     async (files: FileList | File[]) => {
-      const videoFiles = Array.from(files).filter((file) =>
-        file.type.startsWith("video/")
-      )
+      const videoFiles = Array.from(files).filter((file) => {
+        // Accept video files or mp4/mov/webm/avi by extension if MIME type is missing
+        const isVideoType = file.type.startsWith("video/")
+        const hasVideoExt = /\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(file.name)
+        return isVideoType || hasVideoExt
+      })
 
-      const processedFiles: MediaFile[] = await Promise.all(
-        videoFiles.map(async (file) => {
+      if (videoFiles.length === 0) {
+        console.warn("No video files found in selection")
+        return
+      }
+
+      const processedFiles: MediaFile[] = []
+
+      for (const file of videoFiles) {
+        try {
           const [thumbnail, durationData] = await Promise.all([
-            generateThumbnail(file),
-            getVideoDuration(file),
+            generateThumbnail(file).catch(() => null),
+            getVideoDuration(file).catch(() => ({ formatted: "00:00", seconds: 0 })),
           ])
 
-          return {
+          processedFiles.push({
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file,
             name: file.name,
             duration: durationData.formatted,
             durationSeconds: durationData.seconds,
             thumbnail,
-            type: file.type,
+            type: file.type || "video/mp4", // Default to mp4 if type is missing
             objectUrl: URL.createObjectURL(file),
-          }
-        })
-      )
+          })
+        } catch (err) {
+          console.error("Error processing file:", file.name, err)
+          // Still add the file even if thumbnail/duration fails
+          processedFiles.push({
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file,
+            name: file.name,
+            duration: "00:00",
+            durationSeconds: 0,
+            thumbnail: null,
+            type: file.type || "video/mp4",
+            objectUrl: URL.createObjectURL(file),
+          })
+        }
+      }
 
       if (processedFiles.length > 0) {
+        console.log("Adding", processedFiles.length, "files to media pool")
         onFilesAdded(processedFiles)
       }
     },
@@ -487,9 +525,8 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
 
       {/* Drop zone & media grid */}
       <div
-        className={`flex-1 overflow-y-auto p-3 scrollbar-thin transition-colors ${
-          isDragOver ? "bg-primary/10" : ""
-        }`}
+        className={`flex-1 overflow-y-auto p-3 scrollbar-thin transition-colors ${isDragOver ? "bg-primary/10" : ""
+          }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -506,17 +543,15 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
         {mediaFiles.length === 0 ? (
           /* Empty state - drop zone */
           <div
-            className={`flex h-full flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors cursor-pointer ${
-              isDragOver
+            className={`flex h-full flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors cursor-pointer ${isDragOver
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-muted-foreground"
-            }`}
+              }`}
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload
-              className={`h-10 w-10 mb-3 transition-colors ${
-                isDragOver ? "text-primary" : "text-muted-foreground"
-              }`}
+              className={`h-10 w-10 mb-3 transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground"
+                }`}
             />
             <p className="text-sm font-medium text-foreground mb-1">
               Drop videos here
@@ -530,7 +565,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
           </div>
         ) : (
           /* Media grid */
-        <div className="space-y-2">
+          <div className="space-y-2">
             {/* Add more button */}
             <motion.button
               onClick={() => fileInputRef.current?.click()}
@@ -544,161 +579,161 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
 
             {/* Media items */}
             <AnimatePresence mode="popLayout">
-            {filteredFiles.map((media, index) => (
-              <motion.div
-                key={media.id}
-                layout
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-                transition={{
-                  duration: 0.2,
-                  delay: index * 0.05,
-                  layout: { duration: 0.2 }
-                }}
-                whileHover={{ scale: media.isUploading ? 1 : 1.02, y: media.isUploading ? 0 : -2 }}
-                className={`group relative aspect-video overflow-hidden rounded border bg-muted ${
-                media.isUploading
-                  ? "border-primary/50 opacity-70"
-                  : "border-border hover:border-primary cursor-grab active:cursor-grabbing"
-              }`}
-                draggable={!media.isUploading}
-                onDragStart={(e) => !media.isUploading && handleMediaDragStart(e as unknown as React.DragEvent<Element>, media)}
-              >
-                {media.thumbnail ? (
-                  <img
-                    src={media.thumbnail}
-                    alt={media.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-              <div className="flex h-full items-center justify-center">
-                <Film className="h-8 w-8 text-muted-foreground" />
-              </div>
-                )}
-
-                {/* Upload progress overlay */}
-                {media.isUploading && (
-                  <motion.div
-                    className="absolute inset-0 flex items-center justify-center bg-black/40"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
-                    <div className="flex flex-col items-center gap-1">
-                      <Loader2 className="h-6 w-6 text-white animate-spin" />
-                      <span className="text-[10px] text-white">Uploading...</span>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Play icon overlay */}
-                {!media.isUploading && (
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <motion.div
-                      className="rounded-full bg-black/60 p-2"
-                      initial={{ scale: 0.8 }}
-                      whileHover={{ scale: 1.1 }}
-                    >
-                      <Play className="h-4 w-4 text-white fill-white" />
-                    </motion.div>
-                  </div>
-                )}
-
-                {/* Status indicators */}
-                <div className="absolute top-1.5 left-1.5 flex gap-1">
-                  {/* Cloud status */}
-                  {media.storageUrl ? (
-                    <motion.div
-                      className="rounded-full bg-emerald-500/80 p-1"
-                      title="Saved to cloud"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      <Cloud className="h-2.5 w-2.5 text-white" />
-                    </motion.div>
-                  ) : !media.isUploading && (
-                    <div className="rounded-full bg-amber-500/80 p-1" title="Not saved">
-                      <CloudOff className="h-2.5 w-2.5 text-white" />
+              {filteredFiles.map((media, index) => (
+                <motion.div
+                  key={media.id}
+                  layout
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+                  transition={{
+                    duration: 0.2,
+                    delay: index * 0.05,
+                    layout: { duration: 0.2 }
+                  }}
+                  whileHover={{ scale: media.isUploading ? 1 : 1.02, y: media.isUploading ? 0 : -2 }}
+                  className={`group relative aspect-video overflow-hidden rounded border bg-muted ${
+                    media.isUploading
+                      ? "border-primary/50 opacity-70"
+                      : "border-border hover:border-primary cursor-grab active:cursor-grabbing"
+                  }`}
+                  draggable={!media.isUploading}
+                  onDragStart={(e) => !media.isUploading && handleMediaDragStart(e as unknown as React.DragEvent<Element>, media)}
+                >
+                  {media.thumbnail ? (
+                    <img
+                      src={media.thumbnail}
+                      alt={media.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <Film className="h-8 w-8 text-muted-foreground" />
                     </div>
                   )}
-                  
-                  {/* TwelveLabs indexing status */}
-                  {media.twelveLabsStatus === "indexing" || media.twelveLabsStatus === "pending" ? (
-                    <motion.div
-                      className="rounded-full bg-cyan-500/80 p-1"
-                      title="Indexing..."
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      <Loader2 className="h-2.5 w-2.5 text-white animate-spin" />
-                    </motion.div>
-                  ) : media.twelveLabsStatus === "ready" ? (
-                    <motion.div
-                      className="rounded-full bg-cyan-500/80 p-1"
-                      title="Searchable"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      <Search className="h-2.5 w-2.5 text-white" />
-                    </motion.div>
-                  ) : media.twelveLabsStatus === "failed" ? (
-                    <motion.div
-                      className="rounded-full bg-red-500/80 p-1"
-                      title={media.twelveLabsError ? `Failed: ${media.twelveLabsError}` : "Indexing failed"}
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      <AlertCircle className="h-2.5 w-2.5 text-white" />
-                    </motion.div>
-                  ) : null}
-                </div>
 
-                {/* Action buttons */}
-                <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {/* Index button - show if not indexed, failed, or no status (and has storageUrl) */}
-                  {media.storageUrl && (!media.twelveLabsStatus || media.twelveLabsStatus === "failed") && (
+                  {/* Upload progress overlay */}
+                  {media.isUploading && (
+                    <motion.div
+                      className="absolute inset-0 flex items-center justify-center bg-black/40"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <Loader2 className="h-6 w-6 text-white animate-spin" />
+                        <span className="text-[10px] text-white">Uploading...</span>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Play icon overlay */}
+                  {!media.isUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <motion.div
+                        className="rounded-full bg-black/60 p-2"
+                        initial={{ scale: 0.8 }}
+                        whileHover={{ scale: 1.1 }}
+                      >
+                        <Play className="h-4 w-4 text-white fill-white" />
+                      </motion.div>
+                    </div>
+                  )}
+
+                  {/* Status indicators */}
+                  <div className="absolute top-1.5 left-1.5 flex gap-1">
+                    {/* Cloud status */}
+                    {media.storageUrl ? (
+                      <motion.div
+                        className="rounded-full bg-emerald-500/80 p-1"
+                        title="Saved to cloud"
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <Cloud className="h-2.5 w-2.5 text-white" />
+                      </motion.div>
+                    ) : !media.isUploading && (
+                      <div className="rounded-full bg-amber-500/80 p-1" title="Not saved">
+                        <CloudOff className="h-2.5 w-2.5 text-white" />
+                      </div>
+                    )}
+
+                    {/* TwelveLabs indexing status */}
+                    {media.twelveLabsStatus === "indexing" || media.twelveLabsStatus === "pending" ? (
+                      <motion.div
+                        className="rounded-full bg-cyan-500/80 p-1"
+                        title="Indexing..."
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <Loader2 className="h-2.5 w-2.5 text-white animate-spin" />
+                      </motion.div>
+                    ) : media.twelveLabsStatus === "ready" ? (
+                      <motion.div
+                        className="rounded-full bg-cyan-500/80 p-1"
+                        title="Searchable"
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <Search className="h-2.5 w-2.5 text-white" />
+                      </motion.div>
+                    ) : media.twelveLabsStatus === "failed" ? (
+                      <motion.div
+                        className="rounded-full bg-red-500/80 p-1"
+                        title={media.twelveLabsError ? `Failed: ${media.twelveLabsError}` : "Indexing failed"}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <AlertCircle className="h-2.5 w-2.5 text-white" />
+                      </motion.div>
+                    ) : null}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Index button - show if not indexed, failed, or no status (and has storageUrl) */}
+                    {media.storageUrl && (!media.twelveLabsStatus || media.twelveLabsStatus === "failed") && (
+                      <motion.button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onReindexMedia(media.id)
+                        }}
+                        className="rounded-full bg-cyan-500/80 p-1 hover:bg-cyan-500 cursor-pointer"
+                        title={media.twelveLabsStatus === "failed" ? "Retry indexing" : "Make searchable"}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                      >
+                        <Search className="h-3 w-3 text-white" />
+                      </motion.button>
+                    )}
+
+                    {/* Remove button */}
                     <motion.button
                       onClick={(e) => {
                         e.stopPropagation()
-                        onReindexMedia(media.id)
+                        onRemoveFile(media.id)
                       }}
-                      className="rounded-full bg-cyan-500/80 p-1 hover:bg-cyan-500 cursor-pointer"
-                      title={media.twelveLabsStatus === "failed" ? "Retry indexing" : "Make searchable"}
+                      className="rounded-full bg-black/60 p-1 hover:bg-black/80 cursor-pointer"
+                      title="Remove"
                       whileHover={{ scale: 1.1 }}
                       whileTap={{ scale: 0.9 }}
                     >
-                      <Search className="h-3 w-3 text-white" />
+                      <X className="h-3 w-3 text-white" />
                     </motion.button>
-                  )}
-                  
-                  {/* Remove button */}
-                  <motion.button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onRemoveFile(media.id)
-                    }}
-                    className="rounded-full bg-black/60 p-1 hover:bg-black/80 cursor-pointer"
-                    title="Remove"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <X className="h-3 w-3 text-white" />
-                  </motion.button>
-                </div>
-
-                {/* Info overlay */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                  <div className="text-xs font-medium text-white truncate">
-                    {media.name}
                   </div>
-                  <div className="text-[10px] text-white/60">{media.duration}</div>
-                </div>
-              </motion.div>
-            ))}
+
+                  {/* Info overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent p-2">
+                    <div className="text-xs font-medium text-white truncate">
+                      {media.name}
+                    </div>
+                    <div className="text-[10px] text-white/60">{media.duration}</div>
+                  </div>
+                </motion.div>
+              ))}
             </AnimatePresence>
 
             {filteredFiles.length === 0 && searchQuery && !showNlpResults && !isSearching && (
@@ -711,7 +746,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
                 )}
               </div>
             )}
-            
+
             {/* NLP Search Results */}
             {showNlpResults && nlpResults.length > 0 && (
               <div className="mt-2 space-y-2">
@@ -786,7 +821,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
                 </AnimatePresence>
               </div>
             )}
-        </div>
+          </div>
         )}
       </div>
       
@@ -863,547 +898,717 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
   )
 }
 
-function AgentTab() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, isLoadingHistory, sendQuickAction, clearChat, status, sendMessage } = useVideoAgent()
-  const { selectedClipId, currentTime } = useEditor()
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-  const [isRecording, setIsRecording] = useState(false)
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const [showNewChatDialog, setShowNewChatDialog] = useState(false)
+const EFFECT_PRESETS: { id: EffectPreset; label: string }[] = [
+  { id: "none", label: "None" },
+  { id: "grayscale", label: "Black & White" },
+  { id: "sepia", label: "Sepia" },
+  { id: "invert", label: "Invert" },
+  { id: "cyberpunk", label: "Cyberpunk" },
+  { id: "noir", label: "Film Noir" },
+  { id: "vhs", label: "VHS Retro" },
+  { id: "glitch", label: "Glitch" },
+  { id: "ascii", label: "Dreamy" },
+]
 
-  // Auto-scroll to bottom when messages change or during streaming
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, status])
+function EffectsTab() {
+  const { 
+    selectedClipId, 
+    timelineClips, 
+    updateClip, 
+    mediaFiles,
+    generateCaptions,
+    showCaptions,
+    setShowCaptions,
+    captionStyle,
+    setCaptionStyle,
+  } = useEditor()
 
-  const handleQuickAction = (action: string) => {
-    sendQuickAction(action)
+  const selectedClip = timelineClips.find(c => c.id === selectedClipId)
+  
+  if (!selectedClip) {
+    return (
+      <div className="flex h-full items-center justify-center p-3">
+        <p className="text-xs text-muted-foreground">Select a clip to edit</p>
+      </div>
+    )
+  }
+  
+  const transform = selectedClip.transform ?? DEFAULT_CLIP_TRANSFORM
+  const effects = selectedClip.effects ?? DEFAULT_CLIP_EFFECTS
+
+  const handleTransformChange = (key: keyof ClipTransform, value: number) => {
+    if (!selectedClipId) return
+    updateClip(selectedClipId, {
+      transform: { ...transform, [key]: value }
+    })
   }
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      })
+  const handlePresetChange = (preset: EffectPreset) => {
+    if (!selectedClipId) return
+    updateClip(selectedClipId, {
+      effects: { ...effects, preset }
+    })
+  }
 
-      audioChunksRef.current = []
+  const handleEffectChange = (key: keyof ClipEffects, value: number) => {
+    if (!selectedClipId) return
+    updateClip(selectedClipId, {
+      effects: { ...effects, [key]: value }
+    })
+  }
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop())
-
-        // Create audio blob
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-
-        // Send to API for transcription
-        setIsTranscribing(true)
-        try {
-          const formData = new FormData()
-          formData.append('audio', audioBlob, 'recording.webm')
-
-          const response = await fetch('/api/speech-to-text', {
-            method: 'POST',
-            body: formData,
-          })
-
-          if (!response.ok) {
-            const error = await response.json()
-            throw new Error(error.error || 'Transcription failed')
-          }
-
-          const { text } = await response.json()
-          if (text && text.trim()) {
-            // Refine the transcription before sending
-            try {
-              const refineResponse = await fetch('/api/refine-transcription', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ transcription: text.trim() }),
-              })
-
-              if (refineResponse.ok) {
-                const { text: refinedText } = await refineResponse.json()
-                if (refinedText && refinedText.trim()) {
-                  // Send the refined text to the chat
-                  await sendMessage({ text: refinedText.trim() })
-                } else {
-                  // Fallback to original if refinement returns empty
-                  await sendMessage({ text: text.trim() })
-                }
-              } else {
-                // If refinement fails, use original transcription
-                await sendMessage({ text: text.trim() })
-              }
-            } catch (refineError) {
-              console.error('Refinement error:', refineError)
-              // If refinement fails, use original transcription
-              await sendMessage({ text: text.trim() })
-            }
-          }
-        } catch (error) {
-          console.error('Transcription error:', error)
-          alert(error instanceof Error ? error.message : 'Failed to transcribe audio')
-        } finally {
-          setIsTranscribing(false)
-        }
-      }
-
-      mediaRecorder.start()
-      mediaRecorderRef.current = mediaRecorder
-      setIsRecording(true)
-    } catch (error) {
-      console.error('Failed to start recording:', error)
-      alert('Failed to access microphone. Please check permissions.')
+  const handleChromakeyToggle = (enabled: boolean) => {
+    if (!selectedClipId) return
+    const currentChromakey = effects.chromakey ?? {
+      enabled: false,
+      keyColor: "#00FF00",
+      similarity: 0.4,
+      smoothness: 0.1,
+      spill: 0.3,
     }
+    updateClip(selectedClipId, {
+      effects: {
+        ...effects,
+        chromakey: {
+          ...currentChromakey,
+          enabled,
+        },
+      },
+    })
   }
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current = null
-      setIsRecording(false)
+  const handleChromakeyChange = (key: "keyColor" | "similarity" | "smoothness" | "spill", value: string | number) => {
+    if (!selectedClipId) return
+    const currentChromakey = effects.chromakey ?? {
+      enabled: false,
+      keyColor: "#00FF00",
+      similarity: 0.4,
+      smoothness: 0.1,
+      spill: 0.3,
     }
+    updateClip(selectedClipId, {
+      effects: {
+        ...effects,
+        chromakey: {
+          ...currentChromakey,
+          [key]: value,
+        },
+      },
+    })
   }
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording()
-    } else {
-      startRecording()
-    }
+  const resetAll = () => {
+    if (!selectedClipId) return
+    updateClip(selectedClipId, { 
+      transform: DEFAULT_CLIP_TRANSFORM,
+      effects: DEFAULT_CLIP_EFFECTS 
+    })
   }
 
-  const handleNewChat = () => {
-    setShowNewChatDialog(true)
-  }
-
-  const confirmNewChat = () => {
-    clearChat()
-    setShowNewChatDialog(false)
-  }
+  const currentPresetLabel = EFFECT_PRESETS.find(p => p.id === effects.preset)?.label ?? "None"
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header with New Chat button */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">AI Assistant</span>
-        <motion.button
-          onClick={handleNewChat}
-          disabled={isLoading || messages.length === 0}
-          className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          title="Start new chat"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+    <div className="h-full overflow-y-auto scrollbar-thin">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+        <motion.span
+          className="text-xs font-medium text-foreground truncate max-w-[60%]"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ type: "spring", stiffness: 300, damping: 25 }}
         >
-          <MessageSquarePlus className="h-3 w-3" />
-          New Chat
+          {selectedClip.label}
+        </motion.span>
+        <motion.button
+          onClick={resetAll}
+          className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+          whileHover={{ scale: 1.05, x: -2 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 400, damping: 17 }}
+        >
+          Reset All
         </motion.button>
       </div>
+      
+      <Accordion type="multiple" className="w-full">
+        {/* Transform Accordion */}
+        <AccordionItem value="transform" className="border-border">
+          <AccordionTrigger className="px-3 py-2 text-xs font-medium hover:no-underline">
+            Transform
+          </AccordionTrigger>
+          <AccordionContent className="px-3 pb-3">
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Position X</label>
+                  <input
+                    type="number"
+                    value={transform.positionX}
+                    onChange={(e) => handleTransformChange("positionX", parseInt(e.target.value) || 0)}
+                    className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Position Y</label>
+                  <input
+                    type="number"
+                    value={transform.positionY}
+                    onChange={(e) => handleTransformChange("positionY", parseInt(e.target.value) || 0)}
+                    className="w-full rounded border border-input bg-background px-2 py-1 text-xs text-foreground"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">Scale</span>
+                  <span className="text-muted-foreground">{transform.scale}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="200"
+                  value={transform.scale}
+                  onChange={(e) => handleTransformChange("scale", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
 
-      {/* Quick Actions */}
-      <div className="border-b border-border p-3">
-        <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Actions</div>
-        <div className="flex gap-1.5">
-          <motion.button
-            onClick={() => handleQuickAction(`Split the selected clip at the current playhead position (${currentTime.toFixed(1)} seconds)`)}
-            disabled={!selectedClipId || isLoading}
-            className="flex-1 flex items-center justify-center gap-1 rounded bg-primary/10 px-2 py-1.5 text-[10px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            whileHover={{ scale: 1.03, backgroundColor: "hsl(var(--primary) / 0.2)" }}
-            whileTap={{ scale: 0.97 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          >
-            <Scissors className="h-3 w-3" />
-            Split
-          </motion.button>
-          <motion.button
-            onClick={() => handleQuickAction("Delete the selected clip from the timeline")}
-            disabled={!selectedClipId || isLoading}
-            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          >
-            <Trash2 className="h-3 w-3" />
-            Delete
-          </motion.button>
-          <motion.button
-            onClick={() => handleQuickAction("Apply a noir cinematic effect to the selected clip")}
-            disabled={!selectedClipId || isLoading}
-            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          >
-            <Wand2 className="h-3 w-3" />
-            Effect
-          </motion.button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
-        {/* Loading history indicator */}
-        <AnimatePresence>
-        {isLoadingHistory && (
-          <motion.div
-            className="flex justify-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Loading chat history...
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">Opacity</span>
+                  <span className="text-muted-foreground">{transform.opacity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={transform.opacity}
+                  onChange={(e) => handleTransformChange("opacity", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
             </div>
-          </motion.div>
-        )}
-        </AnimatePresence>
+          </AccordionContent>
+        </AccordionItem>
 
-        {/* Initial greeting if no messages and not loading */}
-        <AnimatePresence>
-        {!isLoadingHistory && messages.length === 0 && (
-          <motion.div
-            className="flex justify-start"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 25 }}
-          >
-            <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border">
-              Hi! I&apos;m your AI editing assistant. I can split, trim, delete, move clips, and apply effects. Just tell me what you&apos;d like to do!
+        {/* Presets Accordion */}
+        <AccordionItem value="presets" className="border-border">
+          <AccordionTrigger className="px-3 py-2 text-xs font-medium hover:no-underline">
+            <div className="flex items-center justify-between w-full pr-2">
+              <span>Presets</span>
+              <span className="text-muted-foreground font-normal">{currentPresetLabel}</span>
             </div>
-          </motion.div>
-        )}
-        </AnimatePresence>
-
-        <AnimatePresence mode="popLayout">
-        {messages.map((message, i) => {
-          const isLastMessage = i === messages.length - 1
-          const isStreaming = isLastMessage && message.role === "assistant" && status === "streaming"
-          const hasContent = message.content.trim().length > 0
-          const hasToolCalls = message.toolCalls && message.toolCalls.length > 0
-
-          // Skip empty assistant messages with no tool calls (unless streaming)
-          if (message.role === "assistant" && !hasContent && !hasToolCalls && !isStreaming) {
-            return null
-          }
-
-          return (
-            <motion.div
-              key={i}
-              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              initial={{ opacity: 0, y: 10, x: message.role === "user" ? 20 : -20 }}
-              animate={{ opacity: 1, y: 0, x: 0 }}
-              transition={{ type: "spring", stiffness: 350, damping: 25, delay: isLastMessage ? 0 : 0.05 }}
-              layout
-            >
-              <motion.div
-                className={`max-w-[85%] rounded-lg text-xs ${
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground px-3 py-2"
-                    : "bg-muted text-foreground border border-border"
-                }`}
-                whileHover={{ scale: 1.01 }}
-                transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              >
-                {/* Show tool calls */}
-                {hasToolCalls && (
-                  <div className={`space-y-1 ${hasContent ? "px-3 pt-2 pb-1" : "p-2"}`}>
-                    {message.toolCalls!.map((tc, tcIndex) => (
-                      <motion.div
-                        key={tc.id}
-                        className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] ${
-                          tc.status === "success"
-                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
-                            : tc.status === "error"
-                            ? "bg-red-500/15 text-red-600 dark:text-red-400"
-                            : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                        }`}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: tcIndex * 0.1, type: "spring", stiffness: 400, damping: 20 }}
-                      >
-                        {tc.status === "running" && (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        )}
-                        {tc.status === "success" && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                          >
-                            <Check className="h-3 w-3" />
-                          </motion.div>
-                        )}
-                        {tc.status === "error" && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                          >
-                            <AlertCircle className="h-3 w-3" />
-                          </motion.div>
-                        )}
-                        <span>{tc.description}</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Show text content */}
-                {hasContent && (
-                  <div className={hasToolCalls ? "px-3 pb-2 pt-1" : "px-3 py-2"}>
-                    {message.content}
-                    {isStreaming && (
-                      <motion.span
-                        className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70"
-                        animate={{ opacity: [1, 0.3, 1] }}
-                        transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }}
-                      />
-                    )}
-                  </div>
-                )}
-
-                {/* Show streaming cursor even if no content yet */}
-                {!hasContent && !hasToolCalls && isStreaming && (
-                  <div className="px-3 py-2">
-                    <motion.span
-                      className="inline-block w-1.5 h-3 bg-foreground/70"
-                      animate={{ opacity: [1, 0.3, 1] }}
-                      transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }}
+          </AccordionTrigger>
+          <AccordionContent className="px-3 pb-3">
+            <div className="flex flex-col gap-0.5">
+              {EFFECT_PRESETS.map((preset, index) => (
+                <motion.button
+                  key={preset.id}
+                  onClick={() => handlePresetChange(preset.id)}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors cursor-pointer ${
+                    effects.preset === preset.id
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }`}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 300,
+                    damping: 25,
+                    delay: index * 0.03
+                  }}
+                  whileHover={{ x: 4, scale: 1.01 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <motion.span
+                    animate={effects.preset === preset.id ? { scale: [1, 1.05, 1] } : {}}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {preset.label}
+                  </motion.span>
+                  {effects.preset === preset.id && (
+                    <motion.div
+                      className="inline-block ml-2 w-1.5 h-1.5 rounded-full bg-primary"
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 20 }}
                     />
-                  </div>
-                )}
-              </motion.div>
-            </motion.div>
-          )
-        })}
-        </AnimatePresence>
-
-        {/* Loading indicator - only show when submitted but no streaming yet */}
-        <AnimatePresence>
-        {status === "submitted" && (
-          <motion.div
-            className="flex justify-start"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ type: "spring", stiffness: 300, damping: 25 }}
-          >
-            <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border flex items-center gap-2">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              >
-                <Loader2 className="h-3 w-3" />
-              </motion.div>
-              <motion.span
-                animate={{ opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-              >
-                Thinking...
-              </motion.span>
+                  )}
+                </motion.button>
+              ))}
             </div>
-          </motion.div>
-        )}
-        </AnimatePresence>
+          </AccordionContent>
+        </AccordionItem>
 
-        <div ref={messagesEndRef} />
-      </div>
+        {/* Adjustments Accordion */}
+        <AccordionItem value="adjustments" className="border-border">
+          <AccordionTrigger className="px-3 py-2 text-xs font-medium hover:no-underline">
+            Adjustments
+          </AccordionTrigger>
+          <AccordionContent className="px-3 pb-3">
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Blur</span>
+                  <span className="text-muted-foreground">{effects.blur}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="20"
+                  value={effects.blur}
+                  onChange={(e) => handleEffectChange("blur", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+              
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Brightness</span>
+                  <span className="text-muted-foreground">{effects.brightness}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={effects.brightness}
+                  onChange={(e) => handleEffectChange("brightness", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
 
-      {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-border p-3">
-        <div className="flex gap-2 items-center">
-          <input
-            type="text"
-            placeholder="Ask AI to edit your video..."
-            value={input}
-            onChange={handleInputChange}
-            disabled={isLoading || isRecording}
-            className="flex-1 rounded-md border border-input bg-background px-3 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
-          />
-          {input.trim() ? (
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Contrast</span>
+                  <span className="text-muted-foreground">{effects.contrast}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={effects.contrast}
+                  onChange={(e) => handleEffectChange("contrast", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Saturation</span>
+                  <span className="text-muted-foreground">{effects.saturate}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={effects.saturate}
+                  onChange={(e) => handleEffectChange("saturate", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Hue Rotate</span>
+                  <span className="text-muted-foreground">{effects.hueRotate}°</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  value={effects.hueRotate}
+                  onChange={(e) => handleEffectChange("hueRotate", parseInt(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Chromakey Accordion */}
+        <AccordionItem value="chromakey" className="border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <AccordionTrigger className="flex-1 text-xs font-medium hover:no-underline py-0">
+              <span>Green Screen</span>
+            </AccordionTrigger>
             <motion.button
-              type="submit"
-              className="flex items-center justify-center rounded-md bg-primary px-3 py-2.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              disabled={!input.trim() || isLoading}
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              type="button"
+              onClick={() => handleChromakeyToggle(!(effects.chromakey?.enabled ?? false))}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                effects.chromakey?.enabled
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               transition={{ type: "spring", stiffness: 400, damping: 17 }}
             >
-              <Send className="h-3.5 w-3.5" />
-            </motion.button>
-          ) : (
-            <div className="relative">
-              {/* Pulsing rings when recording */}
-              <AnimatePresence>
-                {isRecording && (
-                  <>
+              <AnimatePresence mode="wait">
+                {effects.chromakey?.enabled ? (
+                  <motion.div
+                    key="on"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
                     <motion.div
-                      className="absolute inset-0 rounded-md bg-red-500"
-                      initial={{ opacity: 0.6, scale: 1 }}
-                      animate={{ opacity: 0, scale: 1.8 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "easeOut" }}
-                    />
-                    <motion.div
-                      className="absolute inset-0 rounded-md bg-red-500"
-                      initial={{ opacity: 0.4, scale: 1 }}
-                      animate={{ opacity: 0, scale: 1.5 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "easeOut", delay: 0.3 }}
-                    />
-                  </>
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </motion.div>
+                    <span>On</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="off"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
+                    <EyeOff className="h-3.5 w-3.5" />
+                    <span>Off</span>
+                  </motion.div>
                 )}
               </AnimatePresence>
+            </motion.button>
+          </div>
+          <AccordionContent className="px-3 pb-3">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Key Color</label>
+                <ColorPicker
+                  value={effects.chromakey?.keyColor ?? "#00FF00"}
+                  onChange={(color) => handleChromakeyChange("keyColor", color)}
+                  disabled={!effects.chromakey?.enabled}
+                />
+              </div>
 
-              <motion.button
-                type="button"
-                onClick={toggleRecording}
-                disabled={isLoading || isTranscribing}
-                className={`relative flex items-center justify-center rounded-md px-3 py-2.5 text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                  isRecording
-                    ? "bg-red-500"
-                    : "bg-primary"
-                }`}
-                title={isRecording ? "Stop recording" : "Start voice recording"}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                animate={isRecording ? {
-                  backgroundColor: ["#ef4444", "#dc2626", "#ef4444"],
-                } : {}}
-                transition={{
-                  backgroundColor: { duration: 0.8, repeat: Infinity, ease: "easeInOut" },
-                  scale: { type: "spring", stiffness: 400, damping: 17 }
-                }}
-              >
-                <AnimatePresence mode="wait">
-                  {isTranscribing ? (
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Similarity</span>
+                  <span className="text-muted-foreground">{((effects.chromakey?.similarity ?? 0.4) * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={((effects.chromakey?.similarity ?? 0.4) * 100)}
+                  onChange={(e) => handleChromakeyChange("similarity", parseInt(e.target.value) / 100)}
+                  className="w-full accent-primary"
+                  disabled={!effects.chromakey?.enabled}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">How close colors must be to be removed</p>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Smoothness</span>
+                  <span className="text-muted-foreground">{((effects.chromakey?.smoothness ?? 0.1) * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={((effects.chromakey?.smoothness ?? 0.1) * 100)}
+                  onChange={(e) => handleChromakeyChange("smoothness", parseInt(e.target.value) / 100)}
+                  className="w-full accent-primary"
+                  disabled={!effects.chromakey?.enabled}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Edge softness</p>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Spill Suppression</span>
+                  <span className="text-muted-foreground">{((effects.chromakey?.spill ?? 0.3) * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={((effects.chromakey?.spill ?? 0.3) * 100)}
+                  onChange={(e) => handleChromakeyChange("spill", parseInt(e.target.value) / 100)}
+                  className="w-full accent-primary"
+                  disabled={!effects.chromakey?.enabled}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Removes color bleed from edges</p>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Captions Accordion */}
+        <AccordionItem value="captions" className="border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <AccordionTrigger className="flex-1 text-xs font-medium hover:no-underline py-0">
+              <div className="flex items-center gap-1.5">
+                <Captions className="h-3.5 w-3.5" />
+                <span>Captions</span>
+              </div>
+            </AccordionTrigger>
+            <motion.button
+              type="button"
+              onClick={() => setShowCaptions(!showCaptions)}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
+                showCaptions
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            >
+              <AnimatePresence mode="wait">
+                {showCaptions ? (
+                  <motion.div
+                    key="show"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
                     <motion.div
-                      key="transcribing"
-                      initial={{ opacity: 0, rotate: 0 }}
-                      animate={{ opacity: 1, rotate: 360 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ rotate: { duration: 1, repeat: Infinity, ease: "linear" } }}
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.3 }}
                     >
-                      <Loader2 className="h-3.5 w-3.5" />
+                      <Eye className="h-3.5 w-3.5" />
                     </motion.div>
-                  ) : isRecording ? (
-                    <motion.div
-                      key="recording"
-                      className="flex items-center gap-0.5"
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      {/* Sound wave bars */}
-                      {[0, 1, 2].map((i) => (
-                        <motion.div
-                          key={i}
-                          className="w-0.5 bg-white rounded-full"
-                          animate={{
-                            height: ["8px", "14px", "8px"],
-                          }}
-                          transition={{
-                            duration: 0.5,
-                            repeat: Infinity,
-                            ease: "easeInOut",
-                            delay: i * 0.15,
-                          }}
-                        />
-                      ))}
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="idle"
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      <Mic className="h-3.5 w-3.5" />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.button>
+                    <span>Show</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="hide"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
+                    <EyeOff className="h-3.5 w-3.5" />
+                    <span>Hide</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.button>
+          </div>
+          <AccordionContent className="px-3 pb-3">
+            <CaptionsSection 
+              selectedClip={selectedClip} 
+              mediaFiles={mediaFiles} 
+              generateCaptions={generateCaptions}
+              captionStyle={captionStyle}
+              setCaptionStyle={setCaptionStyle}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  )
+}
+
+const LANGUAGES = [
+  { code: "", label: "Auto-detect" },
+  { code: "en", label: "English" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "de", label: "German" },
+  { code: "it", label: "Italian" },
+  { code: "pt", label: "Portuguese" },
+  { code: "nl", label: "Dutch" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "zh", label: "Chinese" },
+  { code: "ar", label: "Arabic" },
+  { code: "hi", label: "Hindi" },
+  { code: "ru", label: "Russian" },
+]
+
+interface CaptionsSectionProps {
+  selectedClip: TimelineClip
+  mediaFiles: MediaFile[]
+  generateCaptions: (mediaId: string, options?: { language?: string; prompt?: string }) => Promise<void>
+  captionStyle: "classic" | "tiktok"
+  setCaptionStyle: (style: "classic" | "tiktok") => void
+}
+
+function CaptionsSection({ selectedClip, mediaFiles, generateCaptions, captionStyle, setCaptionStyle }: CaptionsSectionProps) {
+  const [selectedLanguage, setSelectedLanguage] = useState("")
+  const media = mediaFiles.find((m) => m.id === selectedClip.mediaId)
+  
+  if (!media) {
+    return (
+      <p className="text-xs text-muted-foreground">Media not found</p>
+    )
+  }
+
+  const hasCaptions = media.captions && media.captions.length > 0
+  const isGenerating = media.captionsGenerating ?? false
+  const isVideoType = media.type.startsWith("video")
+
+  if (!isVideoType) {
+    return (
+      <p className="text-xs text-muted-foreground">Captions are only available for video clips with audio</p>
+    )
+  }
+
+  const handleGenerate = async () => {
+    if (!media.storageUrl) {
+      return
+    }
+    await generateCaptions(media.id, {
+      language: selectedLanguage || undefined,
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+      {!media.storageUrl ? (
+        <p className="text-xs text-muted-foreground">Upload media to cloud first to generate captions</p>
+      ) : (
+        <>
+          {/* Language Selector */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Language</label>
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              disabled={isGenerating}
+              className="w-full rounded border border-input bg-background px-2 py-1.5 text-xs text-foreground disabled:opacity-50"
+            >
+              {LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-muted-foreground mt-1">Specifying the language improves accuracy</p>
+          </div>
+
+          <motion.button
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors cursor-pointer ${
+              isGenerating
+                ? "bg-secondary text-muted-foreground cursor-not-allowed"
+                : "bg-primary text-primary-foreground hover:bg-primary/90"
+            }`}
+            whileHover={!isGenerating ? { scale: 1.02 } : {}}
+            whileTap={!isGenerating ? { scale: 0.98 } : {}}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+          >
+            <AnimatePresence mode="wait">
+              {isGenerating ? (
+                <motion.div
+                  key="generating"
+                  className="flex items-center gap-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Loader2 className="h-3.5 w-3.5" />
+                  </motion.div>
+                  <span>Generating...</span>
+                </motion.div>
+              ) : hasCaptions ? (
+                <motion.span
+                  key="regenerate"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                >
+                  Regenerate Captions
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="generate"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                >
+                  Generate Captions
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+
+          {hasCaptions && (
+            <div className="space-y-3">
+              {/* Caption Style Selector */}
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Style</label>
+                <div className="relative flex rounded-md border border-border bg-secondary/30 p-0.5">
+                  {/* Animated background indicator */}
+                  <motion.div
+                    className="absolute inset-y-0.5 rounded bg-primary"
+                    initial={false}
+                    animate={{
+                      x: captionStyle === "classic" ? "2px" : "calc(100% + 2px)",
+                      width: "calc(50% - 4px)",
+                    }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 400,
+                      damping: 30,
+                    }}
+                    style={{ left: 0 }}
+                  />
+                  <motion.button
+                    onClick={() => setCaptionStyle("classic")}
+                    className={`relative z-10 flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
+                      captionStyle === "classic"
+                        ? "text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  >
+                    Classic
+                  </motion.button>
+                  <motion.button
+                    onClick={() => setCaptionStyle("tiktok")}
+                    className={`relative z-10 flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
+                      captionStyle === "tiktok"
+                        ? "text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  >
+                    TikTok
+                  </motion.button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Words detected</span>
+                <span className="text-foreground font-medium">{media.captions!.length}</span>
+              </div>
+              
+              <div className="max-h-32 overflow-y-auto rounded border border-border bg-secondary/30 p-2">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {media.captions!.map((c) => c.word).join(" ")}
+                </p>
+              </div>
             </div>
           )}
-        </div>
-        <AnimatePresence>
-          {isTranscribing && (
-            <motion.div
-              className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ type: "spring", stiffness: 500, damping: 30 }}
-            >
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              >
-                <Loader2 className="h-3 w-3" />
-              </motion.div>
-              <span>Transcribing audio...</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </form>
-
-      {/* New Chat Confirmation Dialog */}
-      <Dialog open={showNewChatDialog} onOpenChange={setShowNewChatDialog}>
-        <DialogContent showCloseButton={false} className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Start New Chat?</DialogTitle>
-            <DialogDescription>
-              This will clear your current conversation. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <motion.button
-              onClick={() => setShowNewChatDialog(false)}
-              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 400, damping: 17 }}
-            >
-              Cancel
-            </motion.button>
-            <motion.button
-              onClick={confirmNewChat}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors cursor-pointer"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              initial={{ x: 0 }}
-              transition={{ type: "spring", stiffness: 400, damping: 17 }}
-            >
-              <motion.div
-                initial={{ rotate: 0 }}
-                whileHover={{ rotate: 180 }}
-                transition={{ type: "spring", stiffness: 200, damping: 10 }}
-              >
-                <MessageSquarePlus className="h-4 w-4" />
-              </motion.div>
-              Start New Chat
-            </motion.button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </>
+      )}
     </div>
   )
 }
