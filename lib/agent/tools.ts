@@ -7,6 +7,8 @@ export type AgentAction =
   | { action: "SPLIT_AT_TIME"; payload: { timeSeconds: number; trackId?: string } }
   | { action: "TRIM_CLIP"; payload: { clipId: string; trimStartSeconds?: number; trimEndSeconds?: number } }
   | { action: "DELETE_CLIP"; payload: { clipId: string } }
+  | { action: "DELETE_AT_TIME"; payload: { timeSeconds: number; trackId?: string } }
+  | { action: "DELETE_ALL_CLIPS"; payload: { trackId?: string } }
   | { action: "MOVE_CLIP"; payload: { clipId: string; newStartTimeSeconds?: number; newTrackId?: string } }
   | { action: "APPLY_EFFECT"; payload: { clipId: string; effect: string } }
   | { action: "ADD_MEDIA_TO_TIMELINE"; payload: { mediaId: string; trackId: string; startTimeSeconds?: number } }
@@ -43,6 +45,23 @@ const trimClipInput = z.object({
 
 const deleteClipInput = z.object({
   clipId: z.string().describe("The ID of the clip to delete"),
+})
+
+const deleteAtTimeInput = z.object({
+  timeSeconds: z
+    .number()
+    .describe("The timeline position (in seconds). The clip at this position will be deleted."),
+  trackId: z
+    .string()
+    .optional()
+    .describe("Optional track ID (V1, V2, A1, A2). If not provided, deletes clips on all tracks at that time."),
+})
+
+const deleteAllClipsInput = z.object({
+  trackId: z
+    .string()
+    .optional()
+    .describe("Optional track ID (V1, V2, A1, A2). If provided, only deletes clips on that track. If not provided, deletes ALL clips from the timeline."),
 })
 
 const moveClipInput = z.object({
@@ -113,15 +132,41 @@ export const videoEditingTools = {
     },
   }),
 
-  // Tool: Delete a clip
+  // Tool: Delete a clip by ID
   deleteClip: tool({
     description:
-      "Remove a clip from the timeline entirely. Use this when the user wants to delete, remove, or get rid of a clip.",
+      "Remove a specific clip from the timeline by its ID. Use this when you know the exact clip ID to delete.",
     inputSchema: deleteClipInput,
     execute: async (input: z.infer<typeof deleteClipInput>) => {
       return {
         action: "DELETE_CLIP" as const,
         payload: { clipId: input.clipId },
+      }
+    },
+  }),
+
+  // Tool: Delete at a timeline position (automatically finds the clip)
+  deleteAtTime: tool({
+    description:
+      "Delete the clip at a specific timeline position. Automatically finds which clip exists at that time and removes it. Use this when the user says 'delete at X seconds' or 'delete at the playhead' without specifying a clip.",
+    inputSchema: deleteAtTimeInput,
+    execute: async (input: z.infer<typeof deleteAtTimeInput>) => {
+      return {
+        action: "DELETE_AT_TIME" as const,
+        payload: { timeSeconds: input.timeSeconds, trackId: input.trackId },
+      }
+    },
+  }),
+
+  // Tool: Delete all clips
+  deleteAllClips: tool({
+    description:
+      "Delete all clips from the timeline. Use this when the user says 'delete all clips', 'clear the timeline', 'remove everything', or 'start fresh'. Can optionally delete only clips on a specific track.",
+    inputSchema: deleteAllClipsInput,
+    execute: async (input: z.infer<typeof deleteAllClipsInput>) => {
+      return {
+        action: "DELETE_ALL_CLIPS" as const,
+        payload: { trackId: input.trackId },
       }
     },
   }),

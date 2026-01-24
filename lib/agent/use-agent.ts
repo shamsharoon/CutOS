@@ -109,6 +109,39 @@ export function useVideoAgent() {
           break
         }
 
+        case "DELETE_AT_TIME": {
+          const { timeSeconds, trackId } = action.payload
+          const timePixels = timeSeconds * PIXELS_PER_SECOND
+
+          // Find clips at this time position
+          const clipsAtTime = editor.timelineClips.filter((c) => {
+            const matchesTrack = !trackId || c.trackId === trackId
+            const withinClip = timePixels >= c.startTime && timePixels < c.startTime + c.duration
+            return matchesTrack && withinClip
+          })
+
+          // Delete all clips found at this position
+          for (const clip of clipsAtTime) {
+            editor.removeClip(clip.id)
+          }
+          break
+        }
+
+        case "DELETE_ALL_CLIPS": {
+          const { trackId } = action.payload
+
+          // Find clips to delete (all clips or just on a specific track)
+          const clipsToDelete = trackId
+            ? editor.timelineClips.filter((c) => c.trackId === trackId)
+            : [...editor.timelineClips]
+
+          // Delete all matching clips
+          for (const clip of clipsToDelete) {
+            editor.removeClip(clip.id)
+          }
+          break
+        }
+
         case "MOVE_CLIP": {
           const moveUpdates: Partial<TimelineClip> = {}
 
@@ -256,6 +289,23 @@ export function useVideoAgent() {
             action = {
               action: "DELETE_CLIP",
               payload: { clipId: tc.input.clipId as string },
+            }
+            break
+          case "deleteAtTime":
+            action = {
+              action: "DELETE_AT_TIME",
+              payload: {
+                timeSeconds: tc.input.timeSeconds as number,
+                trackId: tc.input.trackId as string | undefined,
+              },
+            }
+            break
+          case "deleteAllClips":
+            action = {
+              action: "DELETE_ALL_CLIPS",
+              payload: {
+                trackId: tc.input.trackId as string | undefined,
+              },
             }
             break
           case "moveClip":
