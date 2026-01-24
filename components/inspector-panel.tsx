@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { motion, AnimatePresence } from "framer-motion"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Wand2, Eye, EyeOff, Loader2, Captions } from "lucide-react"
@@ -145,15 +146,23 @@ function EffectsTab() {
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
       <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-        <span className="text-xs font-medium text-foreground truncate max-w-[60%]">
+        <motion.span
+          className="text-xs font-medium text-foreground truncate max-w-[60%]"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ type: "spring", stiffness: 300, damping: 25 }}
+        >
           {selectedClip.label}
-        </span>
-        <button 
+        </motion.span>
+        <motion.button
           onClick={resetAll}
           className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+          whileHover={{ scale: 1.05, x: -2 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 400, damping: 17 }}
         >
           Reset All
-        </button>
+        </motion.button>
       </div>
       
       <Accordion type="multiple" className="w-full">
@@ -228,8 +237,8 @@ function EffectsTab() {
           </AccordionTrigger>
           <AccordionContent className="px-3 pb-3">
             <div className="flex flex-col gap-0.5">
-              {EFFECT_PRESETS.map((preset) => (
-                <button
+              {EFFECT_PRESETS.map((preset, index) => (
+                <motion.button
                   key={preset.id}
                   onClick={() => handlePresetChange(preset.id)}
                   className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors cursor-pointer ${
@@ -237,9 +246,32 @@ function EffectsTab() {
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 300,
+                    damping: 25,
+                    delay: index * 0.03
+                  }}
+                  whileHover={{ x: 4, scale: 1.01 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  {preset.label}
-                </button>
+                  <motion.span
+                    animate={effects.preset === preset.id ? { scale: [1, 1.05, 1] } : {}}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {preset.label}
+                  </motion.span>
+                  {effects.preset === preset.id && (
+                    <motion.div
+                      className="inline-block ml-2 w-1.5 h-1.5 rounded-full bg-primary"
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                    />
+                  )}
+                </motion.button>
               ))}
             </div>
           </AccordionContent>
@@ -336,7 +368,7 @@ function EffectsTab() {
             <AccordionTrigger className="flex-1 text-xs font-medium hover:no-underline py-0">
               <span>Green Screen</span>
             </AccordionTrigger>
-            <button
+            <motion.button
               type="button"
               onClick={() => handleChromakeyToggle(!(effects.chromakey?.enabled ?? false))}
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
@@ -344,19 +376,43 @@ function EffectsTab() {
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
             >
-              {effects.chromakey?.enabled ? (
-                <>
-                  <Eye className="h-3.5 w-3.5" />
-                  <span>On</span>
-                </>
-              ) : (
-                <>
-                  <EyeOff className="h-3.5 w-3.5" />
-                  <span>Off</span>
-                </>
-              )}
-            </button>
+              <AnimatePresence mode="wait">
+                {effects.chromakey?.enabled ? (
+                  <motion.div
+                    key="on"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </motion.div>
+                    <span>On</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="off"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
+                    <EyeOff className="h-3.5 w-3.5" />
+                    <span>Off</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.button>
           </div>
           <AccordionContent className="px-3 pb-3">
             <div className="space-y-3">
@@ -435,27 +491,51 @@ function EffectsTab() {
                 <span>Captions</span>
               </div>
             </AccordionTrigger>
-            <button
+            <motion.button
               type="button"
               onClick={() => setShowCaptions(!showCaptions)}
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors ${
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
                 showCaptions
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
             >
-              {showCaptions ? (
-                <>
-                  <Eye className="h-3.5 w-3.5" />
-                  <span>Show</span>
-                </>
-              ) : (
-                <>
-                  <EyeOff className="h-3.5 w-3.5" />
-                  <span>Hide</span>
-                </>
-              )}
-            </button>
+              <AnimatePresence mode="wait">
+                {showCaptions ? (
+                  <motion.div
+                    key="show"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </motion.div>
+                    <span>Show</span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="hide"
+                    className="flex items-center gap-1.5"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                  >
+                    <EyeOff className="h-3.5 w-3.5" />
+                    <span>Hide</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.button>
           </div>
           <AccordionContent className="px-3 pb-3">
             <CaptionsSection 
@@ -550,53 +630,104 @@ function CaptionsSection({ selectedClip, mediaFiles, generateCaptions, captionSt
             <p className="text-[10px] text-muted-foreground mt-1">Specifying the language improves accuracy</p>
           </div>
 
-          <button
+          <motion.button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors ${
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors cursor-pointer ${
               isGenerating
                 ? "bg-secondary text-muted-foreground cursor-not-allowed"
                 : "bg-primary text-primary-foreground hover:bg-primary/90"
             }`}
+            whileHover={!isGenerating ? { scale: 1.02 } : {}}
+            whileTap={!isGenerating ? { scale: 0.98 } : {}}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
-            {isGenerating ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>Generating...</span>
-              </>
-            ) : hasCaptions ? (
-              <span>Regenerate Captions</span>
-            ) : (
-              <span>Generate Captions</span>
-            )}
-          </button>
+            <AnimatePresence mode="wait">
+              {isGenerating ? (
+                <motion.div
+                  key="generating"
+                  className="flex items-center gap-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Loader2 className="h-3.5 w-3.5" />
+                  </motion.div>
+                  <span>Generating...</span>
+                </motion.div>
+              ) : hasCaptions ? (
+                <motion.span
+                  key="regenerate"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                >
+                  Regenerate Captions
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="generate"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                >
+                  Generate Captions
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
 
           {hasCaptions && (
             <div className="space-y-3">
               {/* Caption Style Selector */}
               <div>
                 <label className="text-xs text-muted-foreground mb-1.5 block">Style</label>
-                <div className="flex rounded-md border border-border bg-secondary/30 p-0.5">
-                  <button
+                <div className="relative flex rounded-md border border-border bg-secondary/30 p-0.5">
+                  {/* Animated background indicator */}
+                  <motion.div
+                    className="absolute inset-y-0.5 rounded bg-primary"
+                    initial={false}
+                    animate={{
+                      x: captionStyle === "classic" ? "2px" : "calc(100% + 2px)",
+                      width: "calc(50% - 4px)",
+                    }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 400,
+                      damping: 30,
+                    }}
+                    style={{ left: 0 }}
+                  />
+                  <motion.button
                     onClick={() => setCaptionStyle("classic")}
-                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                    className={`relative z-10 flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
                       captionStyle === "classic"
-                        ? "bg-primary text-primary-foreground"
+                        ? "text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
                   >
                     Classic
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     onClick={() => setCaptionStyle("tiktok")}
-                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                    className={`relative z-10 flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
                       captionStyle === "tiktok"
-                        ? "bg-primary text-primary-foreground"
+                        ? "text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
                   >
                     TikTok
-                  </button>
+                  </motion.button>
                 </div>
               </div>
 
