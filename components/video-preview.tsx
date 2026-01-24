@@ -532,9 +532,9 @@ export function VideoPreview() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Video Preview Area - uses calc to reserve 100px for transport controls */}
-      <div className="flex items-center justify-center bg-black/40 p-4" style={{ height: 'calc(100% - 100px)' }}>
-        <div className="relative aspect-video h-full max-w-5xl overflow-hidden rounded-lg border border-border bg-black">
+      {/* Video Preview Area */}
+      <div className="flex flex-1 min-h-0 items-center justify-center bg-black/40 p-4">
+        <div className="relative aspect-video w-full max-h-full max-w-5xl overflow-hidden rounded-lg border border-border bg-black">
           {previewMedia && activeClip ? (
             <>
               {/* Video element - always present, behind canvas when chromakey is enabled */}
