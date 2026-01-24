@@ -45,7 +45,7 @@ export function MediaPanel() {
               <motion.button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors ${
+                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                   isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
                 whileHover={{ scale: 1.02 }}
