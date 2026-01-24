@@ -465,7 +465,7 @@ export function useVideoAgent() {
     })
   }, [getTimelineContext])
 
-  const { messages, sendMessage, status, error } = useChat({
+  const { messages, sendMessage, setMessages, status, error } = useChat({
     transport,
     onToolCall: ({ toolCall }) => {
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
@@ -764,6 +764,13 @@ export function useVideoAgent() {
     }
   })
 
+  // Clear chat history
+  const clearChat = useCallback(() => {
+    setMessages([])
+    processedToolCallsRef.current.clear()
+    toolCallInfoRef.current.clear()
+  }, [setMessages])
+
   return {
     messages: displayMessages,
     status, // expose status for more granular UI control
@@ -772,7 +779,10 @@ export function useVideoAgent() {
     handleInputChange,
     handleSubmit,
     isLoading,
+    isLoadingHistory: false, // No persistence yet, so never loading history
     sendQuickAction,
+    sendMessage,
+    clearChat,
     error,
   }
 }
