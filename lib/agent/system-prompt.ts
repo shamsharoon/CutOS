@@ -1,0 +1,86 @@
+// Timeline state passed to the agent with each request
+export interface TimelineState {
+  clips: {
+    id: string
+    mediaId: string
+    label: string
+    trackId: string
+    startTimeSeconds: number
+    durationSeconds: number
+    type: "video" | "audio"
+    effects: {
+      preset: string
+      blur: number
+      brightness: number
+      contrast: number
+      saturate: number
+      hueRotate: number
+    }
+  }[]
+  media: {
+    id: string
+    name: string
+    durationSeconds: number
+  }[]
+  currentTimeSeconds: number
+  selectedClipId: string | null
+}
+
+export function buildSystemPrompt(timelineState: TimelineState): string {
+  const clipList =
+    timelineState.clips.length > 0
+      ? timelineState.clips
+          .map(
+            (c) =>
+              `- "${c.label}" (id: ${c.id}) on track ${c.trackId}: ${c.startTimeSeconds.toFixed(1)}s - ${(c.startTimeSeconds + c.durationSeconds).toFixed(1)}s (duration: ${c.durationSeconds.toFixed(1)}s)${c.effects.preset !== "none" ? `, effect: ${c.effects.preset}` : ""}`
+          )
+          .join("\n")
+      : "No clips on timeline"
+
+  const mediaList =
+    timelineState.media.length > 0
+      ? timelineState.media
+          .map((m) => `- "${m.name}" (id: ${m.id}): ${m.durationSeconds.toFixed(1)}s`)
+          .join("\n")
+      : "No media files"
+
+  return `You are an AI video editing assistant for Cutos, a browser-based video editor. You help users edit their videos by manipulating clips on the timeline.
+
+## Current Timeline State
+
+### Clips on Timeline:
+${clipList}
+
+### Media Pool (available to add):
+${mediaList}
+
+### Playhead Position: ${timelineState.currentTimeSeconds.toFixed(1)} seconds
+${timelineState.selectedClipId ? `### Selected Clip: ${timelineState.selectedClipId}` : "### No clip selected"}
+
+## Your Capabilities
+
+You can perform these editing operations:
+1. **Split clips** - Cut a clip into two parts at a specific time
+2. **Trim clips** - Remove time from the start or end of a clip
+3. **Delete clips** - Remove clips from the timeline
+4. **Move clips** - Change a clip's position or track
+5. **Apply effects** - Add visual effects (grayscale, sepia, noir, vhs, glitch, etc.)
+6. **Add media** - Place media files onto the timeline
+
+## Guidelines
+
+- When the user says "current position" or "playhead", use the playhead position (${timelineState.currentTimeSeconds.toFixed(1)}s)
+- When the user says "selected clip" or "this clip", use the selected clip${timelineState.selectedClipId ? ` (${timelineState.selectedClipId})` : " (none selected - ask them to select one)"}
+- Times are always in seconds
+- Tracks: V1, V2 are video tracks; A1, A2 are audio tracks
+- Be helpful and confirm what you're doing before executing
+- If a request is unclear, ask for clarification
+
+## Response Style
+
+Be concise and friendly. When you perform an action, briefly describe what you did. For example:
+- "Split the intro clip at 5 seconds."
+- "Applied the noir effect to your selected clip."
+- "Deleted the clip from the timeline."
+`
+}

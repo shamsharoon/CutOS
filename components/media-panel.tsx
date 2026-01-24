@@ -2,8 +2,9 @@
 
 import { useState, useRef, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff } from "lucide-react"
+import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2 } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
+import { useVideoAgent } from "@/lib/agent/use-agent"
 
 export function MediaPanel() {
   const [activeTab, setActiveTab] = useState("media")
@@ -373,58 +374,68 @@ function ClipsTab() {
 }
 
 function AgentTab() {
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([
-    {
-      role: "assistant",
-      content:
-        "Hi! I'm your AI editing assistant. You can ask me to make edits, find clips, or organize your timeline.",
-    },
-  ])
-  const [input, setInput] = useState("")
+  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction } = useVideoAgent()
+  const { selectedClipId, currentTime } = useEditor()
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const handleSend = () => {
-    if (!input.trim()) return
+  // Auto-scroll to bottom when messages change
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [])
 
-    // Add user message
-    const userMessage = { role: "user" as const, content: input }
-    setMessages((prev) => [...prev, userMessage])
+  // Scroll when messages update
+  useState(() => {
+    scrollToBottom()
+  })
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        "I've analyzed your clips and found 3 sections with silence. Would you like me to remove them?",
-        "I can help with that! Let me identify the best takes based on audio quality and composition.",
-        "I'll generate a rough cut. This will take about 30 seconds...",
-        "I found 5 clips matching your description. Check the Media tab to review them.",
-      ]
-      const aiMessage = {
-        role: "assistant" as const,
-        content: responses[Math.floor(Math.random() * responses.length)],
-      }
-      setMessages((prev) => [...prev, aiMessage])
-    }, 1000)
-
-    setInput("")
+  const handleQuickAction = (action: string) => {
+    sendQuickAction(action)
   }
 
   return (
     <div className="flex h-full flex-col">
+      {/* Quick Actions */}
       <div className="border-b border-border p-3">
         <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Actions</div>
         <div className="flex gap-1.5">
-          <button className="flex-1 rounded bg-primary/10 px-2 py-1.5 text-[10px] font-medium text-primary hover:bg-primary/20">
-            Best Takes
+          <button
+            onClick={() => handleQuickAction(`Split the selected clip at the current playhead position (${currentTime.toFixed(1)} seconds)`)}
+            disabled={!selectedClipId || isLoading}
+            className="flex-1 flex items-center justify-center gap-1 rounded bg-primary/10 px-2 py-1.5 text-[10px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Scissors className="h-3 w-3" />
+            Split
           </button>
-          <button className="flex-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80">
-            Remove Silence
+          <button
+            onClick={() => handleQuickAction("Delete the selected clip from the timeline")}
+            disabled={!selectedClipId || isLoading}
+            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="h-3 w-3" />
+            Delete
           </button>
-          <button className="flex-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80">
-            Rough Cut
+          <button
+            onClick={() => handleQuickAction("Apply a noir cinematic effect to the selected clip")}
+            disabled={!selectedClipId || isLoading}
+            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Wand2 className="h-3 w-3" />
+            Effect
           </button>
         </div>
       </div>
 
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
+        {/* Initial greeting if no messages */}
+        {messages.length === 0 && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border">
+              Hi! I&apos;m your AI editing assistant. I can split, trim, delete, move clips, and apply effects. Just tell me what you&apos;d like to do!
+            </div>
+          </div>
+        )}
+
         {messages.map((message, i) => (
           <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
@@ -438,27 +449,40 @@ function AgentTab() {
             </div>
           </div>
         ))}
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Thinking...</span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-border p-3">
+      {/* Input */}
+      <form onSubmit={handleSubmit} className="border-t border-border p-3">
         <div className="flex gap-2">
           <input
             type="text"
             placeholder="Ask AI to edit your video..."
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            onChange={handleInputChange}
+            disabled={isLoading}
+            className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           />
           <button
-            onClick={handleSend}
+            type="submit"
             className="rounded-md bg-primary px-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            disabled={!input.trim()}
+            disabled={!input.trim() || isLoading}
           >
             <Send className="h-3.5 w-3.5" />
           </button>
         </div>
-      </div>
+      </form>
     </div>
   )
 }
