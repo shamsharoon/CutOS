@@ -1,4 +1,4 @@
-# Cutos
+# CutOS
 
 Edit videos at the speed of thought with AI-powered assistance.
 

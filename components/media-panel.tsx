@@ -2,9 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic } from "lucide-react"
+import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
-import { useVideoAgent } from "@/lib/agent/use-agent"
+import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
 
 
 export function MediaPanel() {
@@ -360,7 +360,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 }
 
 function AgentTab() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction, status, sendMessage } = useVideoAgent()
+  const { messages, input, handleInputChange, handleSubmit, isLoading, isLoadingHistory, sendQuickAction, clearChat, status, sendMessage } = useVideoAgent()
   const { selectedClipId, currentTime } = useEditor()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -480,8 +480,28 @@ function AgentTab() {
     }
   }
 
+  const handleNewChat = () => {
+    if (window.confirm("Start a new chat? This will clear your current conversation.")) {
+      clearChat()
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
+      {/* Header with New Chat button */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">AI Assistant</span>
+        <button
+          onClick={handleNewChat}
+          disabled={isLoading || messages.length === 0}
+          className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Start new chat"
+        >
+          <MessageSquarePlus className="h-3 w-3" />
+          New Chat
+        </button>
+      </div>
+
       {/* Quick Actions */}
       <div className="border-b border-border p-3">
         <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Actions</div>
@@ -515,8 +535,18 @@ function AgentTab() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
-        {/* Initial greeting if no messages */}
-        {messages.length === 0 && (
+        {/* Loading history indicator */}
+        {isLoadingHistory && (
+          <div className="flex justify-center">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading chat history...
+            </div>
+          </div>
+        )}
+
+        {/* Initial greeting if no messages and not loading */}
+        {!isLoadingHistory && messages.length === 0 && (
           <div className="flex justify-start">
             <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border">
               Hi! I&apos;m your AI editing assistant. I can split, trim, delete, move clips, and apply effects. Just tell me what you&apos;d like to do!
@@ -527,32 +557,68 @@ function AgentTab() {
         {messages.map((message, i) => {
           const isLastMessage = i === messages.length - 1
           const isStreaming = isLastMessage && message.role === "assistant" && status === "streaming"
-          
-          // Handle empty assistant messages
-          let displayContent = message.content
-          if (message.role === "assistant" && !isStreaming && (!displayContent || !displayContent.trim())) {
-            displayContent = "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?"
+          const hasContent = message.content.trim().length > 0
+          const hasToolCalls = message.toolCalls && message.toolCalls.length > 0
+
+          // Skip empty assistant messages with no tool calls (unless streaming)
+          if (message.role === "assistant" && !hasContent && !hasToolCalls && !isStreaming) {
+            return null
           }
-          
-          const showContent = displayContent || isStreaming
 
           return (
             <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                className={`max-w-[85%] rounded-lg text-xs ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-primary text-primary-foreground px-3 py-2"
                     : "bg-muted text-foreground border border-border"
                 }`}
               >
-                {showContent ? (
-                  <>
-                    {displayContent}
+                {/* Show tool calls */}
+                {hasToolCalls && (
+                  <div className={`space-y-1 ${hasContent ? "px-3 pt-2 pb-1" : "p-2"}`}>
+                    {message.toolCalls!.map((tc) => (
+                      <div
+                        key={tc.id}
+                        className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] ${
+                          tc.status === "success"
+                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                            : tc.status === "error"
+                            ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                            : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                        }`}
+                      >
+                        {tc.status === "running" && (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        )}
+                        {tc.status === "success" && (
+                          <Check className="h-3 w-3" />
+                        )}
+                        {tc.status === "error" && (
+                          <AlertCircle className="h-3 w-3" />
+                        )}
+                        <span>{tc.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Show text content */}
+                {hasContent && (
+                  <div className={hasToolCalls ? "px-3 pb-2 pt-1" : "px-3 py-2"}>
+                    {message.content}
                     {isStreaming && (
                       <span className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70 animate-pulse" />
                     )}
-                  </>
-                ) : null}
+                  </div>
+                )}
+
+                {/* Show streaming cursor even if no content yet */}
+                {!hasContent && !hasToolCalls && isStreaming && (
+                  <div className="px-3 py-2">
+                    <span className="inline-block w-1.5 h-3 bg-foreground/70 animate-pulse" />
+                  </div>
+                )}
               </div>
             </div>
           )

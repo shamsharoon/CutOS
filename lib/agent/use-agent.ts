@@ -12,6 +12,22 @@ import {
 } from "@/components/editor-context"
 import type { TimelineState } from "./system-prompt"
 import type { AgentAction } from "./tools"
+import { getChatSession, saveChatMessages, clearChatSession, type ChatMessage } from "@/lib/chat"
+
+// Tool call display info
+export type ToolCallInfo = {
+  id: string
+  name: string
+  description: string
+  status: "running" | "success" | "error"
+}
+
+// Display message type
+export type DisplayMessage = {
+  role: "user" | "assistant"
+  content: string
+  toolCalls?: ToolCallInfo[]
+}
 
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
@@ -22,11 +38,56 @@ function getMessageText(message: UIMessage): string {
     .join("")
 }
 
+// Human-readable descriptions for tool calls
+function getToolDescription(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "splitClip":
+      return `Split clip at ${input.splitTimeSeconds}s`
+    case "splitAtTime":
+      return `Split at ${input.timeSeconds}s${input.trackId ? ` on track ${input.trackId}` : ""}`
+    case "trimClip": {
+      const parts = []
+      if (input.trimStartSeconds) parts.push(`${input.trimStartSeconds}s from start`)
+      if (input.trimEndSeconds) parts.push(`${input.trimEndSeconds}s from end`)
+      return `Trim ${parts.join(" and ")}`
+    }
+    case "deleteClip":
+      return "Delete clip"
+    case "deleteAtTime":
+      return `Delete clip at ${input.timeSeconds}s${input.trackId ? ` on track ${input.trackId}` : ""}`
+    case "deleteAllClips":
+      return input.trackId ? `Clear track ${input.trackId}` : "Clear all clips"
+    case "moveClip": {
+      const parts = []
+      if (input.newStartTimeSeconds !== undefined) parts.push(`to ${input.newStartTimeSeconds}s`)
+      if (input.newTrackId) parts.push(`to track ${input.newTrackId}`)
+      return `Move clip ${parts.join(" ")}`
+    }
+    case "applyEffect":
+      return `Apply ${input.effect} effect`
+    case "applyChromakey":
+      return input.enabled ? `Enable chromakey (${input.keyColor || "green"})` : "Disable chromakey"
+    case "addMediaToTimeline":
+      return `Add media to track ${input.trackId}${input.startTimeSeconds !== undefined ? ` at ${input.startTimeSeconds}s` : ""}`
+    default:
+      return toolName
+  }
+}
+
 export function useVideoAgent() {
   const editor = useEditor()
   const pendingActionsRef = useRef<AgentAction[]>([])
   const processedToolCallsRef = useRef<Set<string>>(new Set())
+  const toolCallInfoRef = useRef<Map<string, ToolCallInfo>>(new Map())
   const [input, setInput] = useState("")
+  // Force re-render when tool calls complete
+  const [, forceUpdate] = useState(0)
+
+  // Chat persistence state
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [savedMessages, setSavedMessages] = useState<ChatMessage[]>([])
+  const hasLoadedRef = useRef(false)
+  const lastSavedRef = useRef<string>("")
 
   // Build timeline state for the agent
   const getTimelineContext = useCallback((): TimelineState => {
@@ -261,7 +322,6 @@ export function useVideoAgent() {
   const { messages, sendMessage, status, error } = useChat({
     transport,
     onToolCall: ({ toolCall }) => {
-
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
       // The tool executes server-side and we get the result
       // We can construct the action from the tool name and input
@@ -277,6 +337,15 @@ export function useVideoAgent() {
         if (processedToolCallsRef.current.has(tc.toolCallId)) {
           return
         }
+
+        // Record tool call as running
+        const toolInfo: ToolCallInfo = {
+          id: tc.toolCallId,
+          name: tc.toolName,
+          description: getToolDescription(tc.toolName, tc.input),
+          status: "running",
+        }
+        toolCallInfoRef.current.set(tc.toolCallId, toolInfo)
 
         // Construct the action based on the tool name and input
         let action: AgentAction | null = null
@@ -379,7 +448,18 @@ export function useVideoAgent() {
 
         if (action) {
           processedToolCallsRef.current.add(tc.toolCallId)
-          handleAction(action)
+          try {
+            handleAction(action)
+            // Mark as success
+            toolInfo.status = "success"
+            toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+          } catch (err) {
+            // Mark as error
+            toolInfo.status = "error"
+            toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+          }
+          // Force re-render to show updated status
+          forceUpdate((n) => n + 1)
         }
       }
     },
@@ -470,31 +550,145 @@ export function useVideoAgent() {
 
   // Convert UIMessage[] to simpler format for display
   // Don't use useMemo - we want to recompute on every render to catch streaming updates
-  const displayMessages = messages.map((msg) => {
+  const displayMessages: DisplayMessage[] = messages.map((msg) => {
     const content = getMessageText(msg)
-    // Handle empty assistant messages
-    if (msg.role === "assistant" && (!content || !content.trim())) {
-      return {
-        role: msg.role as "user" | "assistant",
-        content: "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?",
+
+    // Extract tool calls from message parts
+    const toolCalls: ToolCallInfo[] = []
+    if (msg.role === "assistant" && msg.parts) {
+      for (const part of msg.parts) {
+        const partAny = part as Record<string, unknown>
+        // Check for tool-invocation type parts
+        if (partAny.type === "tool-invocation" || partAny.type?.toString().startsWith("tool-")) {
+          const toolCallId = partAny.toolCallId as string
+          if (toolCallId) {
+            // Get info from our tracked tool calls
+            const info = toolCallInfoRef.current.get(toolCallId)
+            if (info) {
+              toolCalls.push(info)
+            }
+          }
+        }
       }
     }
+
+    // Handle empty assistant messages
+    let displayContent = content
+    if (msg.role === "assistant" && (!content || !content.trim()) && toolCalls.length === 0) {
+      displayContent = "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?"
+    }
+
     return {
       role: msg.role as "user" | "assistant",
-      content,
+      content: displayContent,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     }
   })
 
+  // Load chat history on mount
+  useEffect(() => {
+    if (!editor.projectId || hasLoadedRef.current) return
+
+    const loadHistory = async () => {
+      setIsLoadingHistory(true)
+      try {
+        const { data, error } = await getChatSession(editor.projectId!)
+        if (error) {
+          console.error("Failed to load chat history:", error)
+        } else if (data?.messages && data.messages.length > 0) {
+          setSavedMessages(data.messages)
+        }
+      } catch (err) {
+        console.error("Error loading chat history:", err)
+      } finally {
+        setIsLoadingHistory(false)
+        hasLoadedRef.current = true
+      }
+    }
+
+    loadHistory()
+  }, [editor.projectId])
+
+  // Save chat messages when they change (debounced)
+  useEffect(() => {
+    if (!editor.projectId || !hasLoadedRef.current) return
+    if (displayMessages.length === 0) return
+    if (status === "streaming" || status === "submitted") return // Don't save while streaming
+
+    // Create a serializable version for comparison and storage
+    const messagesToSave: ChatMessage[] = displayMessages
+      .filter((m) => m.content.trim() || (m.toolCalls && m.toolCalls.length > 0))
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+        toolCalls: m.toolCalls,
+      }))
+
+    const serialized = JSON.stringify(messagesToSave)
+    if (serialized === lastSavedRef.current) return // No changes
+
+    const saveTimeout = setTimeout(async () => {
+      try {
+        const { error } = await saveChatMessages(editor.projectId!, messagesToSave)
+        if (error) {
+          console.error("Failed to save chat messages:", error)
+        } else {
+          lastSavedRef.current = serialized
+        }
+      } catch (err) {
+        console.error("Error saving chat messages:", err)
+      }
+    }, 1000) // Debounce 1 second
+
+    return () => clearTimeout(saveTimeout)
+  }, [displayMessages, editor.projectId, status])
+
+  // Clear chat and start new
+  const clearChat = useCallback(async () => {
+    if (!editor.projectId) return
+
+    try {
+      const { error } = await clearChatSession(editor.projectId)
+      if (error) {
+        console.error("Failed to clear chat:", error)
+        return
+      }
+
+      // Reset local state
+      setSavedMessages([])
+      processedToolCallsRef.current.clear()
+      toolCallInfoRef.current.clear()
+      lastSavedRef.current = ""
+
+      // Force page reload to reset useChat state
+      window.location.reload()
+    } catch (err) {
+      console.error("Error clearing chat:", err)
+    }
+  }, [editor.projectId])
+
+  // Combine saved messages with current messages for display
+  const allMessages = useMemo(() => {
+    // If we have messages from useChat, use those (they include any saved messages that were restored)
+    if (displayMessages.length > 0) {
+      return displayMessages
+    }
+    // Otherwise show saved messages from DB
+    return savedMessages
+  }, [displayMessages, savedMessages])
+
   return {
-    messages: displayMessages,
+    messages: allMessages,
     status, // expose status for more granular UI control
     input,
     setInput,
     handleInputChange,
     handleSubmit,
     isLoading,
+    isLoadingHistory,
     sendQuickAction,
     sendMessage, // Expose sendMessage for direct message sending
+    clearChat,
     error,
   }
 }
