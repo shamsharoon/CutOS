@@ -329,69 +329,69 @@ export function WelcomeScreen() {
 
         {/* Trusted By Section */}
         <section className="relative z-10 py-16 border-t border-neutral-900/50">
-          <div className="mx-auto max-w-7xl px-6">
+          <div className="mx-auto max-w-7xl px-6 mb-10">
             <motion.p
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
               viewport={{ once: true }}
-              className="text-center text-xs text-neutral-600 uppercase tracking-widest mb-10"
+              className="text-center text-xs text-neutral-600 uppercase tracking-widest"
             >
               Trusted by teams at
             </motion.p>
+          </div>
 
-            {/* Logo Carousel */}
-            <div className="relative overflow-hidden">
-              {/* Fade edges */}
-              <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-neutral-950 to-transparent z-10" />
-              <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-neutral-950 to-transparent z-10" />
+          {/* Logo Carousel - Full Width */}
+          <div className="relative overflow-hidden w-full">
+            {/* Fade edges - positioned relative to viewport */}
+            <div className="absolute left-0 top-0 bottom-0 w-40 bg-gradient-to-r from-neutral-950 via-neutral-950/80 to-transparent z-10 pointer-events-none" />
+            <div className="absolute right-0 top-0 bottom-0 w-40 bg-gradient-to-l from-neutral-950 via-neutral-950/80 to-transparent z-10 pointer-events-none" />
 
-              {/* Scrolling logos */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                whileInView={{ opacity: 1 }}
-                viewport={{ once: true }}
-                className="flex"
-              >
-                <div className="flex animate-scroll items-center gap-16 pr-16">
-                  {[
-                    { name: "Shopify", logo: "/shopify-logo-white.png", width: "w-28" },
-                    { name: "Wealthsimple", logo: "/logos/wealthsimple.png", width: "w-36" },
-                    { name: "Intuit", logo: "/logos/intuit.png", width: "w-24" },
-                    { name: "RBC", logo: "/logos/rbc.png", width: "w-42" },
-                    { name: "Fidelity", logo: "/logos/fidelity.png", width: "w-36" },
-                    { name: "TypeOS", logo: "/logos/typeos.png", width: "w-36" },
-                    { name: "Y Combinator", logo: "/logos/ycombinator.png", width: "w-36" },
-                    { name: "Verily", logo: "/logos/verily.png", width: "w-36" },
-                  ].map((company) => (
-                    <div
-                      key={company.name}
-                      className={`flex-shrink-0 flex items-center justify-center ${company.width}`}
-                    >
-                      <img src={company.logo} alt={company.name} className="w-full h-auto opacity-50" />
-                    </div>
-                  ))}
-                </div>
-                <div className="flex animate-scroll items-center gap-16 pr-16" aria-hidden="true">
-                  {[
-                    { name: "Shopify", logo: "/shopify-logo-white.png", width: "w-28" },
-                    { name: "Wealthsimple", logo: "/logos/wealthsimple.png", width: "w-36" },
-                    { name: "Intuit", logo: "/logos/intuit.png", width: "w-24" },
-                    { name: "RBC", logo: "/logos/rbc.png", width: "w-42" },
-                    { name: "Fidelity", logo: "/logos/fidelity.png", width: "w-36" },
-                    { name: "TypeOS", logo: "/logos/typeos.png", width: "w-36" },
-                    { name: "Y Combinator", logo: "/logos/ycombinator.png", width: "w-36" },
-                    { name: "Verily", logo: "/logos/verily.png", width: "w-36" },
-                  ].map((company) => (
-                    <div
-                      key={company.name}
-                      className={`flex-shrink-0 flex items-center justify-center ${company.width}`}
-                    >
-                      <img src={company.logo} alt={company.name} className="w-full h-auto opacity-50" />
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            </div>
+            {/* Scrolling logos */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              className="flex"
+            >
+              <div className="flex animate-scroll items-center gap-16 pr-16">
+                {[
+                  { name: "Shopify", logo: "/shopify-logo-white.png", width: "w-28" },
+                  { name: "Wealthsimple", logo: "/logos/wealthsimple.png", width: "w-36" },
+                  { name: "Intuit", logo: "/logos/intuit.png", width: "w-24" },
+                  { name: "RBC", logo: "/logos/rbc.png", width: "w-42" },
+                  { name: "Fidelity", logo: "/logos/fidelity.png", width: "w-36" },
+                  { name: "TypeOS", logo: "/logos/typeos.png", width: "w-36" },
+                  { name: "Y Combinator", logo: "/logos/ycombinator.png", width: "w-36" },
+                  { name: "Verily", logo: "/logos/verily.png", width: "w-36" },
+                ].map((company) => (
+                  <div
+                    key={company.name}
+                    className={`flex-shrink-0 flex items-center justify-center ${company.width}`}
+                  >
+                    <img src={company.logo} alt={company.name} className="w-full h-auto opacity-50" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex animate-scroll items-center gap-16 pr-16" aria-hidden="true">
+                {[
+                  { name: "Shopify", logo: "/shopify-logo-white.png", width: "w-28" },
+                  { name: "Wealthsimple", logo: "/logos/wealthsimple.png", width: "w-36" },
+                  { name: "Intuit", logo: "/logos/intuit.png", width: "w-24" },
+                  { name: "RBC", logo: "/logos/rbc.png", width: "w-42" },
+                  { name: "Fidelity", logo: "/logos/fidelity.png", width: "w-36" },
+                  { name: "TypeOS", logo: "/logos/typeos.png", width: "w-36" },
+                  { name: "Y Combinator", logo: "/logos/ycombinator.png", width: "w-36" },
+                  { name: "Verily", logo: "/logos/verily.png", width: "w-36" },
+                ].map((company) => (
+                  <div
+                    key={company.name}
+                    className={`flex-shrink-0 flex items-center justify-center ${company.width}`}
+                  >
+                    <img src={company.logo} alt={company.name} className="w-full h-auto opacity-50" />
+                  </div>
+                ))}
+              </div>
+            </motion.div>
           </div>
         </section>
 
