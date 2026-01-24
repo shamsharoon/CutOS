@@ -538,18 +538,24 @@ export function VideoPreview() {
 
   // Scrubber interaction
   const handleScrubberClick = useCallback((e: React.MouseEvent) => {
-    if (!scrubberRef.current || timelineEndTime === 0) return
+    if (!scrubberRef.current) return
 
     const rect = scrubberRef.current.getBoundingClientRect()
     const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    const newTime = percent * timelineEndTime
+    // Calculate time based on scrubber position
+    // Use timelineEndTime as base, but allow going past it
+    // If timelineEndTime is 0 or very small, use a minimum of 10 seconds
+    const baseTime = Math.max(timelineEndTime, 10)
+    // Allow scrubbing up to 3x the base time, or at least 60 seconds
+    const maxScrubTime = Math.max(baseTime * 3, 60)
+    const newTime = percent * maxScrubTime
 
     setCurrentTime(newTime)
     setDisplayTime(newTime)
   }, [timelineEndTime, setCurrentTime])
 
   const handleScrubberDrag = useCallback((e: React.MouseEvent) => {
-    if (!scrubberRef.current || timelineEndTime === 0) return
+    if (!scrubberRef.current) return
 
     setIsSeeking(true)
     const wasPlaying = isPlaying
@@ -562,7 +568,10 @@ export function VideoPreview() {
 
       const rect = scrubberRef.current.getBoundingClientRect()
       const percent = Math.max(0, Math.min(1, (moveEvent.clientX - rect.left) / rect.width))
-      const newTime = percent * timelineEndTime
+      // Calculate time based on scrubber position, allowing to go past timelineEndTime
+      const baseTime = Math.max(timelineEndTime, 10)
+      const maxScrubTime = Math.max(baseTime * 3, 60)
+      const newTime = percent * maxScrubTime
 
       setCurrentTime(newTime)
       setDisplayTime(newTime)
@@ -582,7 +591,6 @@ export function VideoPreview() {
   }, [timelineEndTime, isPlaying, setCurrentTime, setIsPlaying])
 
   const handleFullscreenScrub = useCallback((e: React.MouseEvent) => {
-    if (timelineEndTime === 0) return
     e.preventDefault()
 
     // Get the progress bar element and its dimensions
@@ -598,7 +606,10 @@ export function VideoPreview() {
     // Function to calculate and update time
     const updateTime = (clientX: number) => {
       const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      const newTime = percent * timelineEndTime
+      // Calculate time based on scrubber position, allowing to go past timelineEndTime
+      const baseTime = Math.max(timelineEndTime, 10)
+      const maxScrubTime = Math.max(baseTime * 3, 60)
+      const newTime = percent * maxScrubTime
       setCurrentTime(newTime)
       setDisplayTime(newTime)
     }
@@ -718,7 +729,10 @@ export function VideoPreview() {
     }
   }, [isFullscreen, isPlaying])
 
-  const progressPercent = timelineEndTime > 0 ? (displayTime / timelineEndTime) * 100 : 0
+  // Calculate progress percent, allowing for times past timelineEndTime
+  // Use a maximum time that's at least the current displayTime or timelineEndTime
+  const maxTime = Math.max(timelineEndTime, displayTime, 1) // At least 1 second to avoid division by zero
+  const progressPercent = Math.min(100, (displayTime / maxTime) * 100) // Cap at 100% for display
   const hasClips = sortedVideoClips.length > 0
 
   // Get current caption based on style
@@ -992,7 +1006,7 @@ export function VideoPreview() {
                         />
                       </div>
                       <div className="font-mono text-xs font-medium text-white/90 w-16 text-right">
-                        {formatTime(timelineEndTime)}
+                        {formatTime(Math.max(timelineEndTime, displayTime, 1))}
                       </div>
                     </div>
 
@@ -1073,7 +1087,7 @@ export function VideoPreview() {
               />
             </div>
             <div className="font-mono text-xs text-muted-foreground w-16 text-right">
-              {formatTime(timelineEndTime)}
+              {formatTime(Math.max(timelineEndTime, displayTime, 1))}
             </div>
           </div>
 

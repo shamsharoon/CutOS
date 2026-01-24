@@ -2,7 +2,9 @@
 
 import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Video, Volume2, Lock, Eye, Film, Trash2 } from "lucide-react"
+import { Video, Volume2, Lock, Eye, Film, Trash2, Scissors, Undo2, Redo2, Copy, Clipboard } from "lucide-react"
+import { motion } from "framer-motion"
+import { Button } from "@/components/ui/button"
 import { useEditor, TimelineClip, PIXELS_PER_SECOND, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 
 export function Timeline() {
@@ -21,7 +23,39 @@ export function Timeline() {
     timelineEndTime,
     isScrubbing,
     setIsScrubbing,
+    activeClip,
+    splitClip,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    copyClip,
+    pasteClip,
+    canPaste,
   } = useEditor()
+
+  // Editing actions
+  const handleCut = () => {
+    if (activeClip) {
+      splitClip(activeClip.id, currentTime)
+    }
+  }
+
+  const handleDelete = () => {
+    if (selectedClipId) {
+      removeClip(selectedClipId)
+    } else if (activeClip) {
+      removeClip(activeClip.id)
+    }
+  }
+
+  const handleCopy = () => {
+    if (selectedClipId) {
+      copyClip(selectedClipId)
+    } else if (activeClip) {
+      copyClip(activeClip.id)
+    }
+  }
 
   // Local state for smooth playhead animation
   const [localPlayheadPosition, setLocalPlayheadPosition] = useState(currentTime * PIXELS_PER_SECOND)
@@ -312,7 +346,84 @@ export function Timeline() {
       {/* Timeline Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
-        <div className="text-xs font-medium text-foreground">Timeline</div>
+          <div className="text-xs font-medium text-foreground">Timeline</div>
+          {/* Editing Toolbar */}
+          <div className="flex items-center gap-1 border-l border-border pl-3 ml-3">
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleCut}
+                disabled={!activeClip}
+                title="Split clip at playhead (S)"
+              >
+                <Scissors className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleDelete}
+                disabled={!selectedClipId && !activeClip}
+                title="Delete clip (Delete)"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <div className="w-px h-3 bg-border mx-0.5" />
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={undo}
+                disabled={!canUndo}
+                title="Undo (Ctrl+Z / Cmd+Z)"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={redo}
+                disabled={!canRedo}
+                title="Redo (Ctrl+Shift+Z / Cmd+Shift+Z)"
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <div className="w-px h-3 bg-border mx-0.5" />
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={handleCopy}
+                disabled={!selectedClipId && !activeClip}
+                title="Copy clip (Ctrl+C / Cmd+C)"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={pasteClip}
+                disabled={!canPaste}
+                title="Paste clip (Ctrl+V / Cmd+V)"
+              >
+                <Clipboard className="h-3.5 w-3.5" />
+              </Button>
+            </motion.div>
+          </div>
           <div className="font-mono text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded">
             {formatRulerTime(currentTime)}
           </div>

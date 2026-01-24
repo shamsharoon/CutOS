@@ -547,18 +547,20 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     return Math.max(max, clipEnd)
   }, 0)
 
-  // Clamp currentTime if it's past the timeline end (e.g., after deleting clips)
-  // But don't clamp while scrubbing - allow user to drag past the end
+  // Only clamp currentTime during playback (not while scrubbing)
+  // Allow manual scrubbing past the timeline end
   useEffect(() => {
-    if (isScrubbing) return // Don't clamp while actively scrubbing
+    if (isScrubbing || !isPlaying) return // Don't clamp while scrubbing or when not playing
 
+    // Only clamp during playback - stop playback at timeline end
     if (timelineEndTime > 0 && currentTime > timelineEndTime) {
       setCurrentTime(timelineEndTime)
+      setIsPlaying(false)
     } else if (timelineEndTime === 0 && currentTime > 0) {
       // No clips left, reset to 0
       setCurrentTime(0)
     }
-  }, [timelineEndTime, currentTime, isScrubbing])
+  }, [timelineEndTime, currentTime, isScrubbing, isPlaying, setIsPlaying])
 
   // Find clip under the playhead
   // When multiple clips overlap, prioritize the topmost track (V2 > V1 > A2 > A1)
