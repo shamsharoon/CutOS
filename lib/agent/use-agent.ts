@@ -86,6 +86,7 @@ export function useVideoAgent() {
   // Chat persistence state
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [savedMessages, setSavedMessages] = useState<ChatMessage[]>([])
+  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([])
   const hasLoadedRef = useRef(false)
   const lastSavedRef = useRef<string>("")
 
@@ -310,6 +311,7 @@ export function useVideoAgent() {
   }, [handleAction])
 
   // Create transport that includes timeline state in body
+  // DefaultChatTransport automatically includes all messages in the conversation
   const transport = useMemo(() => {
     return new DefaultChatTransport({
       api: "/api/agent",
@@ -319,7 +321,7 @@ export function useVideoAgent() {
     })
   }, [getTimelineContext])
 
-  const { messages, sendMessage, status, error } = useChat({
+  const { messages, sendMessage, status, error, setMessages } = useChat({
     transport,
     onToolCall: ({ toolCall }) => {
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
@@ -585,7 +587,7 @@ export function useVideoAgent() {
     }
   })
 
-  // Load chat history on mount
+  // Load chat history on mount and restore to useChat
   useEffect(() => {
     if (!editor.projectId || hasLoadedRef.current) return
 
@@ -597,6 +599,24 @@ export function useVideoAgent() {
           console.error("Failed to load chat history:", error)
         } else if (data?.messages && data.messages.length > 0) {
           setSavedMessages(data.messages)
+          
+          // Convert ChatMessage[] to UIMessage[] format for useChat
+          const uiMessages: UIMessage[] = data.messages.map((msg, index) => ({
+            id: `msg-${index}-${Date.now()}`,
+            role: msg.role,
+            parts: [
+              {
+                type: "text",
+                text: msg.content,
+              },
+            ],
+          }))
+          setInitialMessages(uiMessages)
+          
+          // Restore messages to useChat hook
+          if (setMessages && uiMessages.length > 0) {
+            setMessages(uiMessages)
+          }
         }
       } catch (err) {
         console.error("Error loading chat history:", err)
@@ -607,7 +627,7 @@ export function useVideoAgent() {
     }
 
     loadHistory()
-  }, [editor.projectId])
+  }, [editor.projectId, setMessages])
 
   // Save chat messages when they change (debounced)
   useEffect(() => {
@@ -667,15 +687,9 @@ export function useVideoAgent() {
     }
   }, [editor.projectId])
 
-  // Combine saved messages with current messages for display
-  const allMessages = useMemo(() => {
-    // If we have messages from useChat, use those (they include any saved messages that were restored)
-    if (displayMessages.length > 0) {
-      return displayMessages
-    }
-    // Otherwise show saved messages from DB
-    return savedMessages
-  }, [displayMessages, savedMessages])
+  // Use messages from useChat (which now includes initialMessages)
+  // The displayMessages are already derived from useChat's messages, so we can use them directly
+  const allMessages = displayMessages
 
   return {
     messages: allMessages,
