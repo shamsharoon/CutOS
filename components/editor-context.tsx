@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from "react"
-import { updateProject, type TimelineData, type TimelineClipData, type MediaFileData, type ClipTransform, type ClipEffects } from "@/lib/projects"
+import { updateProject, type TimelineData, type TimelineClipData, type MediaFileData, type ClipTransform, type ClipEffects, type Caption } from "@/lib/projects"
 import { uploadMediaFile } from "@/lib/storage"
 
 export const PIXELS_PER_SECOND = 10 // Timeline scale: 10px = 1 second
@@ -18,6 +18,8 @@ export interface MediaFile {
   storagePath?: string // Path in Supabase Storage
   storageUrl?: string // Public URL from Supabase Storage
   isUploading?: boolean // Track upload state
+  captions?: Caption[] // Generated captions with timestamps
+  captionsGenerating?: boolean // Track caption generation state
 }
 
 export interface TimelineClip {
@@ -111,6 +113,15 @@ interface EditorContextType {
   setIsEyedropperActive: (active: boolean) => void
   onColorSampled?: (r: number, g: number, b: number) => void
   setColorSampledCallback: (callback: ((r: number, g: number, b: number) => void) | undefined) => void
+  
+  // Captions
+  generateCaptions: (mediaId: string, options?: { language?: string; prompt?: string }) => Promise<void>
+  updateMediaCaptions: (mediaId: string, captions: Caption[]) => void
+  getCaptionsForClip: (clipId: string) => Caption[]
+  showCaptions: boolean
+  setShowCaptions: (show: boolean) => void
+  captionStyle: "classic" | "tiktok"
+  setCaptionStyle: (style: "classic" | "tiktok") => void
 }
 
 const EditorContext = createContext<EditorContextType | null>(null)
@@ -127,6 +138,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [isEyedropperActive, setIsEyedropperActive] = useState(false)
   const [colorSampledCallback, setColorSampledCallback] = useState<((r: number, g: number, b: number) => void) | undefined>(undefined)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [showCaptions, setShowCaptions] = useState(true)
+  const [captionStyle, setCaptionStyle] = useState<"classic" | "tiktok">("tiktok")
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -277,6 +290,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       storageUrl: m.storageUrl,
       objectUrl: m.storageUrl, // Use storage URL for playback
       isUploading: false,
+      captions: m.captions, // Restore generated captions
+      captionsGenerating: false,
     }))
     
     setMediaFiles(restoredMedia)
@@ -315,6 +330,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           storagePath: m.storagePath!,
           storageUrl: m.storageUrl!,
           thumbnail: m.thumbnail,
+          captions: m.captions, // Include generated captions
         })),
     }
     
@@ -411,6 +427,87 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     return null
   })()
 
+  // Generate captions for a media file using the transcribe API
+  const generateCaptions = useCallback(async (mediaId: string, options?: { language?: string; prompt?: string }) => {
+    const media = mediaFiles.find((m) => m.id === mediaId)
+    if (!media || !media.storageUrl) {
+      console.error("Media not found or not uploaded yet")
+      return
+    }
+
+    // Mark as generating
+    setMediaFiles((prev) =>
+      prev.map((m) =>
+        m.id === mediaId ? { ...m, captionsGenerating: true } : m
+      )
+    )
+
+    try {
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaId,
+          storageUrl: media.storageUrl,
+          language: options?.language,
+          prompt: options?.prompt,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Transcription failed")
+      }
+
+      const data = await response.json()
+      
+      // Update media with captions
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId
+            ? { ...m, captions: data.captions, captionsGenerating: false }
+            : m
+        )
+      )
+      setHasUnsavedChanges(true)
+    } catch (error) {
+      console.error("Caption generation error:", error)
+      // Clear generating state on error
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId ? { ...m, captionsGenerating: false } : m
+        )
+      )
+    }
+  }, [mediaFiles])
+
+  // Update captions for a media file directly
+  const updateMediaCaptions = useCallback((mediaId: string, captions: Caption[]) => {
+    setMediaFiles((prev) =>
+      prev.map((m) =>
+        m.id === mediaId ? { ...m, captions } : m
+      )
+    )
+    setHasUnsavedChanges(true)
+  }, [])
+
+  // Get captions for a specific clip, filtered by the clip's time range in the source media
+  const getCaptionsForClip = useCallback((clipId: string): Caption[] => {
+    const clip = timelineClips.find((c) => c.id === clipId)
+    if (!clip) return []
+
+    const media = mediaFiles.find((m) => m.id === clip.mediaId)
+    if (!media || !media.captions) return []
+
+    // Calculate clip's time range in source media
+    const clipStartInMedia = clip.mediaOffset / PIXELS_PER_SECOND
+    const clipEndInMedia = clipStartInMedia + (clip.duration / PIXELS_PER_SECOND)
+
+    // Filter captions that fall within the clip's range
+    return media.captions.filter((caption) =>
+      caption.start >= clipStartInMedia && caption.end <= clipEndInMedia
+    )
+  }, [timelineClips, mediaFiles])
+
   return (
     <EditorContext.Provider
       value={{
@@ -445,6 +542,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         setIsEyedropperActive,
         onColorSampled: colorSampledCallback,
         setColorSampledCallback,
+        generateCaptions,
+        updateMediaCaptions,
+        getCaptionsForClip,
+        showCaptions,
+        setShowCaptions,
+        captionStyle,
+        setCaptionStyle,
       }}
     >
       {children}

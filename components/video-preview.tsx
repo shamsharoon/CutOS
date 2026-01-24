@@ -63,6 +63,9 @@ export function VideoPreview() {
     setProjectThumbnail,
     isEyedropperActive,
     onColorSampled,
+    showCaptions,
+    mediaFiles,
+    captionStyle,
   } = useEditor()
   
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -459,6 +462,74 @@ export function VideoPreview() {
   const progressPercent = timelineEndTime > 0 ? (displayTime / timelineEndTime) * 100 : 0
   const hasClips = sortedVideoClips.length > 0
 
+  // Get current caption based on style
+  const getCurrentCaption = useCallback((): { type: "classic"; phrase: string } | { type: "tiktok"; words: string[]; key: string } | null => {
+    if (!showCaptions || !activeClip || !previewMedia) return null
+    
+    const media = mediaFiles.find((m) => m.id === activeClip.mediaId)
+    if (!media?.captions || media.captions.length === 0) return null
+
+    // Find the current word index
+    const currentWordIdx = media.captions.findIndex((caption) => 
+      clipTimeOffset >= caption.start && clipTimeOffset < caption.end
+    )
+
+    if (currentWordIdx === -1) return null
+
+    if (captionStyle === "classic") {
+      // Classic style: show a phrase/sentence
+      const PHRASE_WINDOW = 2.5
+      const GAP_THRESHOLD = 0.8
+      
+      let startIdx = currentWordIdx
+      let endIdx = currentWordIdx
+
+      // Expand backward
+      for (let i = currentWordIdx - 1; i >= 0; i--) {
+        const gap = media.captions[i + 1].start - media.captions[i].end
+        const timeDiff = clipTimeOffset - media.captions[i].start
+        if (timeDiff > PHRASE_WINDOW || gap > GAP_THRESHOLD) break
+        if (media.captions[i].word.match(/[.!?]$/)) break
+        startIdx = i
+      }
+
+      // Expand forward
+      for (let i = currentWordIdx + 1; i < media.captions.length; i++) {
+        const gap = media.captions[i].start - media.captions[i - 1].end
+        const timeDiff = media.captions[i].end - clipTimeOffset
+        if (timeDiff > PHRASE_WINDOW || gap > GAP_THRESHOLD) break
+        endIdx = i
+        if (media.captions[i].word.match(/[.!?,;:]$/)) break
+      }
+
+      const phraseWords = media.captions.slice(startIdx, endIdx + 1).map(c => c.word)
+      return { type: "classic", phrase: phraseWords.join(" ") }
+    }
+
+    // TikTok style: show 1-3 words at a time
+    const words: string[] = []
+    const currentWord = media.captions[currentWordIdx]
+    words.push(currentWord.word.toUpperCase())
+
+    if (currentWordIdx > 0) {
+      const prevWord = media.captions[currentWordIdx - 1]
+      if (currentWord.start - prevWord.end < 0.25) {
+        words.unshift(prevWord.word.toUpperCase())
+      }
+    }
+
+    if (currentWordIdx < media.captions.length - 1) {
+      const nextWord = media.captions[currentWordIdx + 1]
+      if (nextWord.start - currentWord.end < 0.15 && words.length < 3) {
+        words.push(nextWord.word.toUpperCase())
+      }
+    }
+
+    return { type: "tiktok", words, key: `${currentWordIdx}` }
+  }, [showCaptions, activeClip, previewMedia, mediaFiles, clipTimeOffset, captionStyle])
+
+  const captionData = getCurrentCaption()
+
   return (
     <div className="flex h-full flex-col">
       {/* Video Preview Area */}
@@ -522,6 +593,69 @@ export function VideoPreview() {
                     }}
                   />
                 </>
+              )}
+              {/* Caption Overlay */}
+              {showCaptions && captionData && captionData.type === "classic" && (
+                <div className="pointer-events-none absolute bottom-6 left-0 right-0 z-30 flex justify-center px-8">
+                  <div 
+                    className="max-w-[90%] rounded-md px-5 py-2.5"
+                    style={{
+                      background: "linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.9) 100%)",
+                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                    }}
+                  >
+                    <p 
+                      className="text-center text-xl font-semibold leading-relaxed tracking-wide"
+                      style={{
+                        color: "#FFFFFF",
+                        textShadow: "0 0 4px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.9), 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000",
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                        WebkitFontSmoothing: "antialiased",
+                      }}
+                    >
+                      {captionData.phrase}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {showCaptions && captionData && captionData.type === "tiktok" && (
+                <div 
+                  key={captionData.key}
+                  className="pointer-events-none absolute bottom-8 left-0 right-0 z-30 flex justify-center px-4"
+                >
+                  <div 
+                    className="animate-in zoom-in-95 fade-in duration-150 flex items-baseline gap-2"
+                  >
+                    {captionData.words.map((word, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          fontSize: "clamp(1.75rem, 6vw, 3rem)",
+                          fontWeight: 900,
+                          fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif",
+                          color: "#FFFFFF",
+                          textTransform: "uppercase",
+                          letterSpacing: "-0.02em",
+                          lineHeight: 1.1,
+                          textShadow: `
+                            3px 3px 0 #000,
+                            -3px -3px 0 #000,
+                            3px -3px 0 #000,
+                            -3px 3px 0 #000,
+                            3px 0 0 #000,
+                            -3px 0 0 #000,
+                            0 3px 0 #000,
+                            0 -3px 0 #000,
+                            4px 4px 8px rgba(0,0,0,0.5)
+                          `,
+                          WebkitFontSmoothing: "antialiased",
+                        }}
+                      >
+                        {word}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
             </>
           ) : (
