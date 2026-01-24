@@ -13,6 +13,7 @@ export type AgentAction =
   | { action: "APPLY_EFFECT"; payload: { clipId: string; effect: string } }
   | { action: "APPLY_CHROMAKEY"; payload: { clipId: string; enabled: boolean; keyColor?: string; similarity?: number; smoothness?: number; spill?: number } }
   | { action: "ADD_MEDIA_TO_TIMELINE"; payload: { mediaId: string; trackId: string; startTimeSeconds?: number } }
+  | { action: "DUB_CLIP"; payload: { clipId: string; targetLanguage: string; replaceOriginal?: boolean } }
 
 // Define the input schemas
 const splitClipInput = z.object({
@@ -118,6 +119,19 @@ const addMediaToTimelineInput = z.object({
     .number()
     .optional()
     .describe("Where to place it on the timeline in seconds (defaults to end of track)"),
+})
+
+const dubClipInput = z.object({
+  clipId: z.string().describe("The ID of the clip to dub/translate"),
+  targetLanguage: z
+    .string()
+    .describe(
+      "Target language code (ISO-639-1). Supported: en, es, fr, de, pt, zh, ja, ar, ru, hi, ko, id, it, nl, tr, pl, sv, fil, ms, ro, uk, el, cs, da, fi, bg, hr, sk, ta"
+    ),
+  replaceOriginal: z
+    .boolean()
+    .optional()
+    .describe("Whether to replace the original clip with the dubbed version (default: false, adds as new media)"),
 })
 
 export const videoEditingTools = {
@@ -254,6 +268,23 @@ export const videoEditingTools = {
       return {
         action: "ADD_MEDIA_TO_TIMELINE" as const,
         payload: { mediaId: input.mediaId, trackId: input.trackId, startTimeSeconds: input.startTimeSeconds },
+      }
+    },
+  }),
+
+  // Tool: Dub/translate a clip to another language
+  dubClip: tool({
+    description:
+      "Dub (translate) the audio of a video clip to another language using AI. This preserves the emotion, timing, and tone of the original speakers while translating the speech. **IMPORTANT: The clip must be uploaded to cloud storage first (has a storageUrl). This operation can take several minutes for longer clips.** Supported languages: English (en), Spanish (es), French (fr), German (de), Portuguese (pt), Chinese (zh), Japanese (ja), Arabic (ar), Russian (ru), Hindi (hi), Korean (ko), Indonesian (id), Italian (it), Dutch (nl), Turkish (tr), Polish (pl), Swedish (sv), Filipino (fil), Malay (ms), Romanian (ro), Ukrainian (uk), Greek (el), Czech (cs), Danish (da), Finnish (fi), Bulgarian (bg), Croatian (hr), Slovak (sk), Tamil (ta).",
+    inputSchema: dubClipInput,
+    execute: async (input: z.infer<typeof dubClipInput>) => {
+      return {
+        action: "DUB_CLIP" as const,
+        payload: {
+          clipId: input.clipId,
+          targetLanguage: input.targetLanguage,
+          replaceOriginal: input.replaceOriginal,
+        },
       }
     },
   }),

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import { motion } from "framer-motion"
 import { ArrowLeft, Save, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MediaPanel } from "./media-panel"
@@ -116,10 +117,21 @@ function EditorContent({ projectId }: { projectId: string }) {
       {/* Top Bar */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="gap-2" onClick={handleBackToProjects}>
-            <ArrowLeft className="h-4 w-4" />
-            Projects
-          </Button>
+          <motion.div
+            whileHover="hover"
+            whileTap={{ scale: 0.97 }}
+          >
+            <Button variant="ghost" size="sm" className="gap-2 cursor-pointer" onClick={handleBackToProjects}>
+              <motion.div
+                variants={{
+                  hover: { x: -3, transition: { type: "spring", stiffness: 400, damping: 20 } }
+                }}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </motion.div>
+              Projects
+            </Button>
+          </motion.div>
           <div className="h-4 w-px bg-border" />
           <div className="text-sm font-semibold text-foreground">{project.name}</div>
           <div className="text-xs text-muted-foreground">

@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
 import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
@@ -12,35 +11,106 @@ export function MediaPanel() {
   const [activeTab, setActiveTab] = useState("media")
   const { mediaFiles, addMediaFiles, removeMediaFile } = useEditor()
 
+  const tabs = [
+    { id: "media", label: "Media", icon: FolderOpen },
+    { id: "agent", label: "Agent", icon: Sparkles },
+  ]
+
   return (
     <div className="flex h-full flex-col">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col">
-        <div className="border-b border-border px-3 py-2">
-          <TabsList className="grid w-full grid-cols-2 bg-secondary">
-            <TabsTrigger value="media" className="text-xs">
-              <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
-              Media
-            </TabsTrigger>
-            <TabsTrigger value="agent" className="text-xs">
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-              Agent
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      {/* Custom Animated Tabs */}
+      <div className="border-b border-border px-3 py-2">
+        <div className="relative grid w-full grid-cols-2 rounded-md bg-secondary p-1">
+          {/* Animated background indicator */}
+          <motion.div
+            className="absolute inset-y-1 rounded-sm bg-background shadow-sm"
+            initial={false}
+            animate={{
+              x: activeTab === "media" ? "0%" : "100%",
+              width: "calc(50% - 2px)",
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 400,
+              damping: 30,
+            }}
+            style={{ left: 2 }}
+          />
 
-        <div className="flex-1 overflow-hidden">
-          <TabsContent value="media" className="m-0 h-full">
-            <MediaTab 
-              mediaFiles={mediaFiles} 
-              onFilesAdded={addMediaFiles} 
-              onRemoveFile={removeMediaFile}
-            />
-          </TabsContent>
-          <TabsContent value="agent" className="m-0 h-full">
-            <AgentTab />
-          </TabsContent>
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.id
+
+            return (
+              <motion.button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <motion.div
+                  animate={isActive ? {
+                    scale: [1, 1.2, 1],
+                    rotate: tab.id === "agent" ? [0, 15, -15, 0] : 0,
+                  } : { scale: 1, rotate: 0 }}
+                  transition={{
+                    duration: 0.4,
+                    ease: "easeInOut",
+                  }}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </motion.div>
+                <span>{tab.label}</span>
+                {isActive && tab.id === "agent" && (
+                  <motion.div
+                    className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                  />
+                )}
+              </motion.button>
+            )
+          })}
         </div>
-      </Tabs>
+      </div>
+
+      {/* Animated Tab Content */}
+      <div className="flex-1 overflow-hidden relative">
+        <AnimatePresence mode="wait">
+          {activeTab === "media" && (
+            <motion.div
+              key="media"
+              className="h-full"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            >
+              <MediaTab
+                mediaFiles={mediaFiles}
+                onFilesAdded={addMediaFiles}
+                onRemoveFile={removeMediaFile}
+              />
+            </motion.div>
+          )}
+          {activeTab === "agent" && (
+            <motion.div
+              key="agent"
+              className="h-full"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            >
+              <AgentTab />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   )
 }
@@ -263,25 +333,38 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
           /* Media grid */
         <div className="space-y-2">
             {/* Add more button */}
-            <button
+            <motion.button
               onClick={() => fileInputRef.current?.click()}
               className="w-full flex items-center justify-center gap-2 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
+              whileHover={{ scale: 1.02, borderColor: "hsl(var(--primary))" }}
+              whileTap={{ scale: 0.98 }}
             >
               <Upload className="h-3.5 w-3.5" />
               Add more videos
-            </button>
+            </motion.button>
 
             {/* Media items */}
-            {filteredFiles.map((media) => (
-            <div
+            <AnimatePresence mode="popLayout">
+            {filteredFiles.map((media, index) => (
+              <motion.div
                 key={media.id}
-              className={`group relative aspect-video overflow-hidden rounded border bg-muted ${
-                media.isUploading 
-                  ? "border-primary/50 opacity-70" 
+                layout
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+                transition={{
+                  duration: 0.2,
+                  delay: index * 0.05,
+                  layout: { duration: 0.2 }
+                }}
+                whileHover={{ scale: media.isUploading ? 1 : 1.02, y: media.isUploading ? 0 : -2 }}
+                className={`group relative aspect-video overflow-hidden rounded border bg-muted ${
+                media.isUploading
+                  ? "border-primary/50 opacity-70"
                   : "border-border hover:border-primary cursor-grab active:cursor-grabbing"
               }`}
                 draggable={!media.isUploading}
-                onDragStart={(e) => !media.isUploading && handleMediaDragStart(e, media)}
+                onDragStart={(e) => !media.isUploading && handleMediaDragStart(e as unknown as React.DragEvent<Element>, media)}
               >
                 {media.thumbnail ? (
                   <img
@@ -294,32 +377,46 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                 <Film className="h-8 w-8 text-muted-foreground" />
               </div>
                 )}
-                
+
                 {/* Upload progress overlay */}
                 {media.isUploading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <motion.div
+                    className="absolute inset-0 flex items-center justify-center bg-black/40"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                  >
                     <div className="flex flex-col items-center gap-1">
                       <Loader2 className="h-6 w-6 text-white animate-spin" />
                       <span className="text-[10px] text-white">Uploading...</span>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
-                
+
                 {/* Play icon overlay */}
                 {!media.isUploading && (
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="rounded-full bg-black/60 p-2">
+                    <motion.div
+                      className="rounded-full bg-black/60 p-2"
+                      initial={{ scale: 0.8 }}
+                      whileHover={{ scale: 1.1 }}
+                    >
                       <Play className="h-4 w-4 text-white fill-white" />
-                    </div>
+                    </motion.div>
                   </div>
                 )}
 
                 {/* Cloud status indicator */}
                 <div className="absolute top-1.5 left-1.5">
                   {media.storageUrl ? (
-                    <div className="rounded-full bg-emerald-500/80 p-1" title="Saved to cloud">
+                    <motion.div
+                      className="rounded-full bg-emerald-500/80 p-1"
+                      title="Saved to cloud"
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                    >
                       <Cloud className="h-2.5 w-2.5 text-white" />
-                    </div>
+                    </motion.div>
                   ) : !media.isUploading && (
                     <div className="rounded-full bg-amber-500/80 p-1" title="Not saved">
                       <CloudOff className="h-2.5 w-2.5 text-white" />
@@ -328,15 +425,17 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                 </div>
 
                 {/* Remove button */}
-                <button
+                <motion.button
                   onClick={(e) => {
                     e.stopPropagation()
                     onRemoveFile(media.id)
                   }}
                   className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 cursor-pointer"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                 >
                   <X className="h-3 w-3 text-white" />
-                </button>
+                </motion.button>
 
                 {/* Info overlay */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
@@ -345,8 +444,9 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                   </div>
                   <div className="text-[10px] text-white/60">{media.duration}</div>
                 </div>
-              </div>
+              </motion.div>
             ))}
+            </AnimatePresence>
 
             {filteredFiles.length === 0 && searchQuery && (
               <div className="text-center py-8 text-xs text-muted-foreground">
@@ -492,69 +592,95 @@ function AgentTab() {
       {/* Header with New Chat button */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">AI Assistant</span>
-        <button
+        <motion.button
           onClick={handleNewChat}
           disabled={isLoading || messages.length === 0}
           className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           title="Start new chat"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
         >
           <MessageSquarePlus className="h-3 w-3" />
           New Chat
-        </button>
+        </motion.button>
       </div>
 
       {/* Quick Actions */}
       <div className="border-b border-border p-3">
         <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Actions</div>
         <div className="flex gap-1.5">
-            <button
+          <motion.button
             onClick={() => handleQuickAction(`Split the selected clip at the current playhead position (${currentTime.toFixed(1)} seconds)`)}
             disabled={!selectedClipId || isLoading}
             className="flex-1 flex items-center justify-center gap-1 rounded bg-primary/10 px-2 py-1.5 text-[10px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            whileHover={{ scale: 1.03, backgroundColor: "hsl(var(--primary) / 0.2)" }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <Scissors className="h-3 w-3" />
             Split
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             onClick={() => handleQuickAction("Delete the selected clip from the timeline")}
             disabled={!selectedClipId || isLoading}
             className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <Trash2 className="h-3 w-3" />
             Delete
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             onClick={() => handleQuickAction("Apply a noir cinematic effect to the selected clip")}
             disabled={!selectedClipId || isLoading}
             className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <Wand2 className="h-3 w-3" />
             Effect
-          </button>
+          </motion.button>
         </div>
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
         {/* Loading history indicator */}
+        <AnimatePresence>
         {isLoadingHistory && (
-          <div className="flex justify-center">
+          <motion.div
+            className="flex justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               Loading chat history...
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
         {/* Initial greeting if no messages and not loading */}
+        <AnimatePresence>
         {!isLoadingHistory && messages.length === 0 && (
-          <div className="flex justify-start">
+          <motion.div
+            className="flex justify-start"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+          >
             <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border">
               Hi! I&apos;m your AI editing assistant. I can split, trim, delete, move clips, and apply effects. Just tell me what you&apos;d like to do!
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
+        <AnimatePresence mode="popLayout">
         {messages.map((message, i) => {
           const isLastMessage = i === messages.length - 1
           const isStreaming = isLastMessage && message.role === "assistant" && status === "streaming"
@@ -567,19 +693,28 @@ function AgentTab() {
           }
 
           return (
-            <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div
+            <motion.div
+              key={i}
+              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              initial={{ opacity: 0, y: 10, x: message.role === "user" ? 20 : -20 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25, delay: isLastMessage ? 0 : 0.05 }}
+              layout
+            >
+              <motion.div
                 className={`max-w-[85%] rounded-lg text-xs ${
                   message.role === "user"
                     ? "bg-primary text-primary-foreground px-3 py-2"
                     : "bg-muted text-foreground border border-border"
                 }`}
+                whileHover={{ scale: 1.01 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
               >
                 {/* Show tool calls */}
                 {hasToolCalls && (
                   <div className={`space-y-1 ${hasContent ? "px-3 pt-2 pb-1" : "p-2"}`}>
-                    {message.toolCalls!.map((tc) => (
-                      <div
+                    {message.toolCalls!.map((tc, tcIndex) => (
+                      <motion.div
                         key={tc.id}
                         className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] ${
                           tc.status === "success"
@@ -588,18 +723,33 @@ function AgentTab() {
                             ? "bg-red-500/15 text-red-600 dark:text-red-400"
                             : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
                         }`}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: tcIndex * 0.1, type: "spring", stiffness: 400, damping: 20 }}
                       >
                         {tc.status === "running" && (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         )}
                         {tc.status === "success" && (
-                          <Check className="h-3 w-3" />
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                          >
+                            <Check className="h-3 w-3" />
+                          </motion.div>
                         )}
                         {tc.status === "error" && (
-                          <AlertCircle className="h-3 w-3" />
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                          >
+                            <AlertCircle className="h-3 w-3" />
+                          </motion.div>
                         )}
                         <span>{tc.description}</span>
-                      </div>
+                      </motion.div>
                     ))}
                   </div>
                 )}
@@ -609,7 +759,11 @@ function AgentTab() {
                   <div className={hasToolCalls ? "px-3 pb-2 pt-1" : "px-3 py-2"}>
                     {message.content}
                     {isStreaming && (
-                      <span className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70 animate-pulse" />
+                      <motion.span
+                        className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70"
+                        animate={{ opacity: [1, 0.3, 1] }}
+                        transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }}
+                      />
                     )}
                   </div>
                 )}
@@ -617,23 +771,46 @@ function AgentTab() {
                 {/* Show streaming cursor even if no content yet */}
                 {!hasContent && !hasToolCalls && isStreaming && (
                   <div className="px-3 py-2">
-                    <span className="inline-block w-1.5 h-3 bg-foreground/70 animate-pulse" />
+                    <motion.span
+                      className="inline-block w-1.5 h-3 bg-foreground/70"
+                      animate={{ opacity: [1, 0.3, 1] }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }}
+                    />
                   </div>
                 )}
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           )
         })}
+        </AnimatePresence>
 
         {/* Loading indicator - only show when submitted but no streaming yet */}
+        <AnimatePresence>
         {status === "submitted" && (
-          <div className="flex justify-start">
+          <motion.div
+            className="flex justify-start"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+          >
             <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-muted text-foreground border border-border flex items-center gap-2">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Thinking...</span>
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              >
+                <Loader2 className="h-3 w-3" />
+              </motion.div>
+              <motion.span
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              >
+                Thinking...
+              </motion.span>
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
         <div ref={messagesEndRef} />
       </div>
@@ -650,13 +827,19 @@ function AgentTab() {
             className="flex-1 rounded-md border border-input bg-background px-3 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           />
           {input.trim() ? (
-          <button
-            type="submit"
-            className="flex items-center justify-center rounded-md bg-primary px-3 py-2.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            disabled={!input.trim() || isLoading}
-          >
+            <motion.button
+              type="submit"
+              className="flex items-center justify-center rounded-md bg-primary px-3 py-2.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              disabled={!input.trim() || isLoading}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            >
               <Send className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
           ) : (
             <div className="relative">
               {/* Pulsing rings when recording */}
