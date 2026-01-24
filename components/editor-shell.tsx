@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { ArrowLeft, Save, Loader2 } from "lucide-react"
+import { ArrowLeft, Save, Loader2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ExportModal } from "./export-modal"
 import { MediaPanel } from "./media-panel"
 import { VideoPreview } from "./video-preview"
 import { Timeline } from "./timeline"
@@ -28,6 +29,7 @@ function EditorContent({ projectId }: { projectId: string }) {
   const [isEditingName, setIsEditingName] = useState(false)
   const [editedName, setEditedName] = useState("")
   const [isUpdatingName, setIsUpdatingName] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const { setProjectId, setProjectResolution, loadTimelineData, saveProject, isSaving, hasUnsavedChanges, isPlaying, setIsPlaying, sortedVideoClips, currentTime, setCurrentTime, timelineEndTime, activeClip, splitClip, selectedClipId, removeClip, undo, redo, canUndo, canRedo, copyClip, pasteClip, canPaste } = useEditor()
@@ -253,10 +255,10 @@ function EditorContent({ projectId }: { projectId: string }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="gap-2" 
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
             onClick={handleSave}
             disabled={isSaving || !hasUnsavedChanges}
           >
@@ -267,8 +269,26 @@ function EditorContent({ projectId }: { projectId: string }) {
             )}
             {isSaving ? "Saving..." : hasUnsavedChanges ? "Save" : "Saved"}
           </Button>
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+          >
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-2"
+              onClick={() => setShowExportModal(true)}
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+          </motion.div>
         </div>
       </div>
+
+      {/* Export Modal */}
+      <ExportModal open={showExportModal} onOpenChange={setShowExportModal} />
 
       {/* Main Content Area - Resizable Panels */}
       <ResizablePanelGroup direction="vertical" className="flex-1">
