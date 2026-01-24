@@ -5,6 +5,14 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
 import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 
 export function MediaPanel() {
@@ -469,6 +477,7 @@ function AgentTab() {
   const audioChunksRef = useRef<Blob[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [showNewChatDialog, setShowNewChatDialog] = useState(false)
 
   // Auto-scroll to bottom when messages change or during streaming
   useEffect(() => {
@@ -582,9 +591,12 @@ function AgentTab() {
   }
 
   const handleNewChat = () => {
-    if (window.confirm("Start a new chat? This will clear your current conversation.")) {
-      clearChat()
-    }
+    setShowNewChatDialog(true)
+  }
+
+  const confirmNewChat = () => {
+    clearChat()
+    setShowNewChatDialog(false)
   }
 
   return (
@@ -957,6 +969,46 @@ function AgentTab() {
           )}
         </AnimatePresence>
       </form>
+
+      {/* New Chat Confirmation Dialog */}
+      <Dialog open={showNewChatDialog} onOpenChange={setShowNewChatDialog}>
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start New Chat?</DialogTitle>
+            <DialogDescription>
+              This will clear your current conversation. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <motion.button
+              onClick={() => setShowNewChatDialog(false)}
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            >
+              Cancel
+            </motion.button>
+            <motion.button
+              onClick={confirmNewChat}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors cursor-pointer"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              initial={{ x: 0 }}
+              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            >
+              <motion.div
+                initial={{ rotate: 0 }}
+                whileHover={{ rotate: 180 }}
+                transition={{ type: "spring", stiffness: 200, damping: 10 }}
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </motion.div>
+              Start New Chat
+            </motion.button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
