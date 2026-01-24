@@ -14,6 +14,7 @@ export type AgentAction =
   | { action: "APPLY_CHROMAKEY"; payload: { clipId: string; enabled: boolean; keyColor?: string; similarity?: number; smoothness?: number; spill?: number } }
   | { action: "ADD_MEDIA_TO_TIMELINE"; payload: { mediaId: string; trackId: string; startTimeSeconds?: number } }
   | { action: "DUB_CLIP"; payload: { clipId: string; targetLanguage: string; replaceOriginal?: boolean } }
+  | { action: "CREATE_MORPH_TRANSITION"; payload: { fromClipId: string; toClipId: string; durationSeconds: number } }
 
 // Define the input schemas
 const splitClipInput = z.object({
@@ -132,6 +133,17 @@ const dubClipInput = z.object({
     .boolean()
     .optional()
     .describe("Whether to replace the original clip with the dubbed version (default: false, adds as new media)"),
+})
+
+const createMorphTransitionInput = z.object({
+  fromClipId: z.string().describe("The ID of the clip to morph from (transition start)"),
+  toClipId: z.string().describe("The ID of the clip to morph to (transition end)"),
+  durationSeconds: z
+    .number()
+    .min(5)
+    .max(10)
+    .default(5)
+    .describe("Duration of the morph transition in seconds. Only 5 or 10 seconds are supported. Will be rounded to nearest (5 or 10). Default: 5"),
 })
 
 export const videoEditingTools = {
@@ -284,6 +296,23 @@ export const videoEditingTools = {
           clipId: input.clipId,
           targetLanguage: input.targetLanguage,
           replaceOriginal: input.replaceOriginal,
+        },
+      }
+    },
+  }),
+
+  // Tool: Create AI morph transition between clips
+  createMorphTransition: tool({
+    description:
+      "Create an AI-powered morph transition between two clips. This extracts the last frame from the first clip and the first frame from the second clip, then uses AI to generate a smooth morphing video that transitions between them. The generated transition video is automatically inserted on the timeline. Use this when the user wants to create a smooth transition or morph effect between two video clips.",
+    inputSchema: createMorphTransitionInput,
+    execute: async (input: z.infer<typeof createMorphTransitionInput>) => {
+      return {
+        action: "CREATE_MORPH_TRANSITION" as const,
+        payload: {
+          fromClipId: input.fromClipId,
+          toClipId: input.toClipId,
+          durationSeconds: input.durationSeconds,
         },
       }
     },

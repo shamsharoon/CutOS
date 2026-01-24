@@ -141,11 +141,19 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
       video.muted = true
       video.playsInline = true
 
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        console.warn("Thumbnail generation timeout for:", file.name)
+        URL.revokeObjectURL(video.src)
+        resolve(null)
+      }, 10000)
+
       video.onloadeddata = () => {
         video.currentTime = 1 // Seek to 1 second for thumbnail
       }
 
       video.onseeked = () => {
+        clearTimeout(timeout)
         const canvas = document.createElement("canvas")
         canvas.width = video.videoWidth
         canvas.height = video.videoHeight
@@ -160,6 +168,8 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
       }
 
       video.onerror = () => {
+        clearTimeout(timeout)
+        console.error("Error loading video for thumbnail:", file.name)
         resolve(null)
         URL.revokeObjectURL(video.src)
       }
@@ -179,12 +189,22 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
       const video = document.createElement("video")
       video.preload = "metadata"
 
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        console.warn("Duration loading timeout for:", file.name)
+        URL.revokeObjectURL(video.src)
+        resolve({ formatted: "00:00", seconds: 0 })
+      }, 10000)
+
       video.onloadedmetadata = () => {
+        clearTimeout(timeout)
         resolve({ formatted: formatDuration(video.duration), seconds: video.duration })
         URL.revokeObjectURL(video.src)
       }
 
       video.onerror = () => {
+        clearTimeout(timeout)
+        console.error("Error loading video metadata:", file.name)
         resolve({ formatted: "00:00", seconds: 0 })
         URL.revokeObjectURL(video.src)
       }
@@ -195,31 +215,55 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 
   const processFiles = useCallback(
     async (files: FileList | File[]) => {
-      const videoFiles = Array.from(files).filter((file) =>
-        file.type.startsWith("video/")
-      )
+      const videoFiles = Array.from(files).filter((file) => {
+        // Accept video files or mp4/mov/webm/avi by extension if MIME type is missing
+        const isVideoType = file.type.startsWith("video/")
+        const hasVideoExt = /\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(file.name)
+        return isVideoType || hasVideoExt
+      })
 
-      const processedFiles: MediaFile[] = await Promise.all(
-        videoFiles.map(async (file) => {
+      if (videoFiles.length === 0) {
+        console.warn("No video files found in selection")
+        return
+      }
+
+      const processedFiles: MediaFile[] = []
+
+      for (const file of videoFiles) {
+        try {
           const [thumbnail, durationData] = await Promise.all([
-            generateThumbnail(file),
-            getVideoDuration(file),
+            generateThumbnail(file).catch(() => null),
+            getVideoDuration(file).catch(() => ({ formatted: "00:00", seconds: 0 })),
           ])
 
-          return {
+          processedFiles.push({
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file,
             name: file.name,
             duration: durationData.formatted,
             durationSeconds: durationData.seconds,
             thumbnail,
-            type: file.type,
+            type: file.type || "video/mp4", // Default to mp4 if type is missing
             objectUrl: URL.createObjectURL(file),
-          }
-        })
-      )
+          })
+        } catch (err) {
+          console.error("Error processing file:", file.name, err)
+          // Still add the file even if thumbnail/duration fails
+          processedFiles.push({
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file,
+            name: file.name,
+            duration: "00:00",
+            durationSeconds: 0,
+            thumbnail: null,
+            type: file.type || "video/mp4",
+            objectUrl: URL.createObjectURL(file),
+          })
+        }
+      }
 
       if (processedFiles.length > 0) {
+        console.log("Adding", processedFiles.length, "files to media pool")
         onFilesAdded(processedFiles)
       }
     },
