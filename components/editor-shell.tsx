@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
+import { motion } from "framer-motion"
 import { ArrowLeft, Save, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MediaPanel } from "./media-panel"
@@ -9,7 +10,7 @@ import { VideoPreview } from "./video-preview"
 import { Timeline } from "./timeline"
 import { InspectorPanel } from "./inspector-panel"
 import { EditorProvider, useEditor } from "./editor-context"
-import { getProject, type ProjectData } from "@/lib/projects"
+import { getProject, updateProject, type ProjectData } from "@/lib/projects"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -24,8 +25,12 @@ function EditorContent({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editedName, setEditedName] = useState("")
+  const [isUpdatingName, setIsUpdatingName] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
-  const { setProjectId, loadTimelineData, saveProject, isSaving, hasUnsavedChanges, isPlaying, setIsPlaying, sortedVideoClips, currentTime, setCurrentTime, timelineEndTime, activeClip, splitClip } = useEditor()
+  const { setProjectId, loadTimelineData, saveProject, isSaving, hasUnsavedChanges, isPlaying, setIsPlaying, sortedVideoClips, currentTime, setCurrentTime, timelineEndTime, activeClip, splitClip, selectedClipId, removeClip, undo, redo, canUndo, canRedo, copyClip, pasteClip, canPaste } = useEditor()
 
   useEffect(() => {
     async function loadProject() {
@@ -54,6 +59,49 @@ function EditorContent({ projectId }: { projectId: string }) {
       return
     }
 
+    // Ctrl+Z or Cmd+Z - Undo
+    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+      e.preventDefault()
+      if (canUndo) {
+        undo()
+      }
+      return
+    }
+
+    // Ctrl+Shift+Z or Cmd+Shift+Z - Redo
+    if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
+      e.preventDefault()
+      if (canRedo) {
+        redo()
+      }
+      return
+    }
+
+    // Ctrl+C or Cmd+C - Copy selected clip
+    if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+      e.preventDefault()
+      if (selectedClipId) {
+        copyClip(selectedClipId)
+      }
+      return
+    }
+
+    // Ctrl+V or Cmd+V - Paste clip
+    if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+      e.preventDefault()
+      if (canPaste) {
+        pasteClip()
+      }
+      return
+    }
+
+    // Delete or Backspace - Delete selected clip
+    if ((e.key === "Delete" || e.key === "Backspace") && selectedClipId) {
+      e.preventDefault()
+      removeClip(selectedClipId)
+      return
+    }
+
     if (e.code === "Space") {
       e.preventDefault() // Prevent page scroll
       
@@ -74,7 +122,7 @@ function EditorContent({ projectId }: { projectId: string }) {
         splitClip(activeClip.id, currentTime)
       }
     }
-  }, [isPlaying, setIsPlaying, sortedVideoClips.length, currentTime, timelineEndTime, setCurrentTime, activeClip, splitClip])
+  }, [isPlaying, setIsPlaying, sortedVideoClips.length, currentTime, timelineEndTime, setCurrentTime, activeClip, splitClip, selectedClipId, removeClip, undo, redo, canUndo, canRedo, copyClip, pasteClip, canPaste])
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown)
@@ -88,6 +136,52 @@ function EditorContent({ projectId }: { projectId: string }) {
   const handleSave = async () => {
     await saveProject()
   }
+
+  const handleNameClick = () => {
+    if (project) {
+      setEditedName(project.name)
+      setIsEditingName(true)
+    }
+  }
+
+  const handleNameBlur = async () => {
+    if (!project || !editedName.trim() || editedName === project.name) {
+      setIsEditingName(false)
+      return
+    }
+
+    setIsUpdatingName(true)
+    const { data, error } = await updateProject(project.id, { name: editedName.trim() })
+    
+    if (error || !data) {
+      console.error("Failed to update project name:", error)
+      setEditedName(project.name) // Revert on error
+    } else {
+      setProject(data)
+    }
+    
+    setIsUpdatingName(false)
+    setIsEditingName(false)
+  }
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.currentTarget.blur()
+    } else if (e.key === "Escape") {
+      if (project) {
+        setEditedName(project.name)
+      }
+      setIsEditingName(false)
+    }
+  }
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus()
+      nameInputRef.current.select()
+    }
+  }, [isEditingName])
 
   if (isLoading) {
     return (
@@ -116,12 +210,43 @@ function EditorContent({ projectId }: { projectId: string }) {
       {/* Top Bar */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="gap-2" onClick={handleBackToProjects}>
-            <ArrowLeft className="h-4 w-4" />
-            Projects
-          </Button>
+          <motion.div
+            whileHover="hover"
+            whileTap={{ scale: 0.97 }}
+          >
+            <Button variant="ghost" size="sm" className="gap-2 cursor-pointer" onClick={handleBackToProjects}>
+              <motion.div
+                variants={{
+                  hover: { x: -3, transition: { type: "spring", stiffness: 400, damping: 20 } }
+                }}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </motion.div>
+              Projects
+            </Button>
+          </motion.div>
           <div className="h-4 w-px bg-border" />
-          <div className="text-sm font-semibold text-foreground">{project.name}</div>
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={editedName}
+              onChange={(e) => setEditedName(e.target.value)}
+              onBlur={handleNameBlur}
+              onKeyDown={handleNameKeyDown}
+              disabled={isUpdatingName}
+              className="text-sm font-semibold text-foreground bg-transparent border-b-2 border-primary focus:outline-none px-1 min-w-[120px] max-w-[300px] disabled:opacity-50"
+            />
+          ) : (
+            <motion.div
+              className="text-sm font-semibold text-foreground cursor-pointer hover:text-primary transition-colors"
+              onClick={handleNameClick}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              {project.name}
+            </motion.div>
+          )}
           <div className="text-xs text-muted-foreground">
             {project.resolution} • {project.frame_rate} fps
           </div>
@@ -176,7 +301,8 @@ function EditorContent({ projectId }: { projectId: string }) {
           </ResizablePanelGroup>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        {/* Invisible but functional resize handle */}
+        <ResizableHandle className="bg-transparent after:bg-transparent hover:bg-border/50 transition-colors" />
 
         {/* Bottom Panel - Timeline */}
         <ResizablePanel defaultSize={35} minSize={20} maxSize={60}>

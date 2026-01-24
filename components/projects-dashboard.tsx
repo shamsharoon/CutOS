@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import { motion } from "framer-motion"
 import { Film, Plus, Search, Grid3x3, List, Clock, MoreVertical, Play, Copy, Trash2, Settings, LogOut, User, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -100,12 +101,9 @@ export function ProjectsDashboard() {
           <div className="flex items-center gap-3">
             <button 
               onClick={() => router.push("/")}
-              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
             >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-              <Film className="h-5 w-5 text-primary" />
-            </div>
-            <h1 className="text-lg font-semibold text-foreground">Cutos</h1>
+            <img src="/cutos.svg" alt="CutOS" className="h-24 w-24" />
             </button>
           </div>
 
@@ -152,15 +150,30 @@ export function ProjectsDashboard() {
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-auto p-6">
+        <motion.div 
+          className="flex-1 overflow-auto p-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+        >
           {/* Page Header */}
-          <div className="mb-6">
+          <motion.div 
+            className="mb-6"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+          >
             <h2 className="text-2xl font-bold text-foreground">Your Projects</h2>
             <p className="text-muted-foreground">Manage and edit your video projects</p>
-          </div>
+          </motion.div>
 
           {/* Controls Bar */}
-          <div className="mb-6 flex items-center justify-between">
+          <motion.div 
+            className="mb-6 flex items-center justify-between"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+          >
             <div className="flex items-center gap-3">
               <div className="relative w-80">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -189,7 +202,7 @@ export function ProjectsDashboard() {
                 <List className="h-4 w-4" />
               </Button>
             </div>
-          </div>
+          </motion.div>
 
           {/* Loading State */}
           {isLoading ? (
@@ -212,17 +225,39 @@ export function ProjectsDashboard() {
               </Button>
             </div>
           ) : (
-            <div
+            <motion.div
               className={
                 viewMode === "grid"
                   ? "grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
                   : "flex flex-col gap-2"
               }
+              initial="hidden"
+              animate={!isLoading ? "visible" : "hidden"}
+              variants={{
+                hidden: {},
+                visible: {
+                  transition: {
+                    staggerChildren: 0.1,
+                    delayChildren: 0.3,
+                  },
+                },
+              }}
             >
-              {filteredProjects.map((project) => (
-                <div
+              {filteredProjects.map((project, index) => (
+                <motion.div
                   key={project.id}
                   className="group relative overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary/50"
+                  variants={{
+                    hidden: { opacity: 0, y: 30 },
+                    visible: { 
+                      opacity: 1, 
+                      y: 0,
+                      transition: {
+                        duration: 0.5,
+                        ease: [0.4, 0, 0.2, 1],
+                      },
+                    },
+                  }}
                 >
                   {/* Thumbnail */}
                   <div
@@ -286,11 +321,11 @@ export function ProjectsDashboard() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                </div>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
           )}
-        </div>
+        </motion.div>
       </div>
 
       <NewProjectModal 

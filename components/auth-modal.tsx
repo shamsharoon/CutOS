@@ -58,7 +58,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[420px] p-0 gap-0 bg-background border-border overflow-hidden">
         <DialogTitle className="sr-only">
-          {mode === "signin" ? "Sign in to Cutos" : "Create a Cutos account"}
+          {mode === "signin" ? "Sign in to CutOS" : "Create a CutOS account"}
         </DialogTitle>
         
         {/* Header */}
@@ -72,7 +72,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
           <p className="text-muted-foreground mt-2 text-sm">
             {mode === "signin"
               ? "Sign in to continue editing"
-              : "Get started with Cutos"}
+              : "Get started with CutOS"}
           </p>
         </div>
 
@@ -148,7 +148,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
                     setMode("signup")
                     setError(null)
                   }}
-                  className="text-foreground hover:underline font-medium"
+                  className="text-foreground hover:underline font-medium cursor-pointer"
                 >
                   Sign up
                 </button>
@@ -162,7 +162,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
                     setMode("signin")
                     setError(null)
                   }}
-                  className="text-foreground hover:underline font-medium"
+                  className="text-foreground hover:underline font-medium cursor-pointer"
                 >
                   Sign in
                 </button>

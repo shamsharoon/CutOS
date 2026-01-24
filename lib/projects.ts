@@ -56,6 +56,12 @@ export interface TimelineClipData {
   effects?: ClipEffects // Optional for backwards compatibility
 }
 
+export interface Caption {
+  word: string
+  start: number  // seconds into source media
+  end: number    // seconds into source media
+}
+
 export interface MediaFileData {
   id: string
   name: string
@@ -65,6 +71,7 @@ export interface MediaFileData {
   storagePath: string // Path in Supabase Storage
   storageUrl: string // Public URL to access the file
   thumbnail: string | null // Base64 thumbnail
+  captions?: Caption[] // Generated captions with timestamps
 }
 
 // Create a new project

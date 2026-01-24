@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from "react"
-import { updateProject, type TimelineData, type TimelineClipData, type MediaFileData, type ClipTransform, type ClipEffects } from "@/lib/projects"
+import { updateProject, type TimelineData, type TimelineClipData, type MediaFileData, type ClipTransform, type ClipEffects, type Caption } from "@/lib/projects"
 import { uploadMediaFile } from "@/lib/storage"
 
 export const PIXELS_PER_SECOND = 10 // Timeline scale: 10px = 1 second
@@ -18,6 +18,8 @@ export interface MediaFile {
   storagePath?: string // Path in Supabase Storage
   storageUrl?: string // Public URL from Supabase Storage
   isUploading?: boolean // Track upload state
+  captions?: Caption[] // Generated captions with timestamps
+  captionsGenerating?: boolean // Track caption generation state
 }
 
 export interface TimelineClip {
@@ -73,6 +75,17 @@ interface EditorContextType {
   removeClip: (id: string) => void
   splitClip: (clipId: string, splitTime: number) => void // Split a clip at the given timeline time (in seconds)
   
+  // Undo/Redo
+  undo: () => void
+  redo: () => void
+  canUndo: boolean
+  canRedo: boolean
+  
+  // Copy/Paste
+  copyClip: (clipId: string) => void
+  pasteClip: () => void
+  canPaste: boolean
+  
   // Playback
   selectedClipId: string | null
   setSelectedClipId: (id: string | null) => void
@@ -80,6 +93,8 @@ interface EditorContextType {
   setCurrentTime: (time: number) => void
   isPlaying: boolean
   setIsPlaying: (playing: boolean) => void
+  isScrubbing: boolean
+  setIsScrubbing: (scrubbing: boolean) => void
   
   // Get media for a clip
   getMediaForClip: (clipId: string) => MediaFile | undefined
@@ -111,6 +126,15 @@ interface EditorContextType {
   setIsEyedropperActive: (active: boolean) => void
   onColorSampled?: (r: number, g: number, b: number) => void
   setColorSampledCallback: (callback: ((r: number, g: number, b: number) => void) | undefined) => void
+  
+  // Captions
+  generateCaptions: (mediaId: string, options?: { language?: string; prompt?: string }) => Promise<void>
+  updateMediaCaptions: (mediaId: string, captions: Caption[]) => void
+  getCaptionsForClip: (clipId: string) => Caption[]
+  showCaptions: boolean
+  setShowCaptions: (show: boolean) => void
+  captionStyle: "classic" | "tiktok"
+  setCaptionStyle: (style: "classic" | "tiktok") => void
 }
 
 const EditorContext = createContext<EditorContextType | null>(null)
@@ -122,13 +146,123 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0) // Time in seconds
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isScrubbing, setIsScrubbing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [projectThumbnail, setProjectThumbnail] = useState<string | null>(null)
   const [isEyedropperActive, setIsEyedropperActive] = useState(false)
   const [colorSampledCallback, setColorSampledCallback] = useState<((r: number, g: number, b: number) => void) | undefined>(undefined)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [showCaptions, setShowCaptions] = useState(true)
+  const [captionStyle, setCaptionStyle] = useState<"classic" | "tiktok">("tiktok")
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Undo/Redo history
+  const historyRef = useRef<TimelineClip[][]>([])
+  const historyIndexRef = useRef<number>(-1)
+  const copiedClipRef = useRef<TimelineClip | null>(null)
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
+  
+  // Update history state
+  const updateHistoryState = useCallback(() => {
+    const history = historyRef.current
+    const index = historyIndexRef.current
+    setHistoryState({
+      canUndo: history.length > 0 && index > 0,
+      canRedo: index < history.length - 1
+    })
+  }, [])
+  
+  // Save state to history before making changes
+  const saveToHistory = useCallback(() => {
+    const currentState = [...timelineClips]
+    const history = historyRef.current
+    const index = historyIndexRef.current
+    
+    // Remove any future history if we're not at the end
+    if (index < history.length - 1) {
+      history.splice(index + 1)
+    }
+    
+    // Add new state
+    history.push(JSON.parse(JSON.stringify(currentState)))
+    historyIndexRef.current = history.length - 1
+    
+    // Limit history size to 50
+    if (history.length > 50) {
+      history.shift()
+      historyIndexRef.current = history.length - 1
+    }
+    
+    updateHistoryState()
+  }, [timelineClips, updateHistoryState])
+  
+  // Undo
+  const undo = useCallback(() => {
+    const history = historyRef.current
+    const index = historyIndexRef.current
+    
+    if (index > 0) {
+      historyIndexRef.current = index - 1
+      const previousState = history[index - 1]
+      setTimelineClips(JSON.parse(JSON.stringify(previousState)))
+      setHasUnsavedChanges(true)
+      updateHistoryState()
+    }
+  }, [updateHistoryState])
+  
+  // Redo
+  const redo = useCallback(() => {
+    const history = historyRef.current
+    const index = historyIndexRef.current
+    
+    if (index < history.length - 1) {
+      historyIndexRef.current = index + 1
+      const nextState = history[index + 1]
+      setTimelineClips(JSON.parse(JSON.stringify(nextState)))
+      setHasUnsavedChanges(true)
+      updateHistoryState()
+    }
+  }, [updateHistoryState])
+  
+  const canUndo = historyState.canUndo
+  const canRedo = historyState.canRedo
+  
+  // Copy clip
+  const copyClip = useCallback((clipId: string) => {
+    const clip = timelineClips.find(c => c.id === clipId)
+    if (clip) {
+      copiedClipRef.current = JSON.parse(JSON.stringify(clip))
+      setCanPasteState(true)
+    }
+  }, [timelineClips])
+  
+  // Paste clip
+  const pasteClip = useCallback(() => {
+    const copied = copiedClipRef.current
+    if (!copied) return
+    
+    saveToHistory()
+    
+    const newClip: TimelineClip = {
+      ...JSON.parse(JSON.stringify(copied)),
+      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      startTime: currentTime * PIXELS_PER_SECOND, // Paste at current playhead position
+    }
+    
+    setTimelineClips(prev => [...prev, newClip])
+    setSelectedClipId(newClip.id)
+    setHasUnsavedChanges(true)
+  }, [currentTime, saveToHistory])
+  
+  const [canPasteState, setCanPasteState] = useState(false)
+  
+  // Update canPaste state
+  useEffect(() => {
+    setCanPasteState(copiedClipRef.current !== null)
+  }, [timelineClips]) // Re-check when clips change
+  
+  const canPaste = canPasteState
 
   const addMediaFiles = useCallback(async (files: MediaFile[]) => {
     // Add files immediately with uploading state
@@ -185,25 +319,28 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addClipToTimeline = useCallback((clip: TimelineClip) => {
+    saveToHistory()
     setTimelineClips((prev) => [...prev, clip])
     setSelectedClipId(clip.id)
     setHasUnsavedChanges(true)
-  }, [])
+  }, [saveToHistory])
 
   const updateClip = useCallback((id: string, updates: Partial<TimelineClip>) => {
+    saveToHistory()
     setTimelineClips((prev) =>
       prev.map((clip) => (clip.id === id ? { ...clip, ...updates } : clip))
     )
     setHasUnsavedChanges(true)
-  }, [])
+  }, [saveToHistory])
 
   const removeClip = useCallback((id: string) => {
+    saveToHistory()
     setTimelineClips((prev) => prev.filter((c) => c.id !== id))
     if (selectedClipId === id) {
       setSelectedClipId(null)
     }
     setHasUnsavedChanges(true)
-  }, [selectedClipId])
+  }, [selectedClipId, saveToHistory])
 
   // Split a clip at the given timeline time (in seconds)
   const splitClip = useCallback((clipId: string, splitTime: number) => {
@@ -216,6 +353,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
     // Check if split point is within the clip
     if (splitPositionPixels <= clipStart || splitPositionPixels >= clipEnd) return
+
+    saveToHistory()
 
     // Calculate durations for the two new clips
     const firstClipDuration = splitPositionPixels - clipStart
@@ -287,6 +426,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       storageUrl: m.storageUrl,
       objectUrl: m.storageUrl, // Use storage URL for playback
       isUploading: false,
+      captions: m.captions, // Restore generated captions
+      captionsGenerating: false,
     }))
     
     setMediaFiles(restoredMedia)
@@ -325,6 +466,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           storagePath: m.storagePath!,
           storageUrl: m.storageUrl!,
           thumbnail: m.thumbnail,
+          captions: m.captions, // Include generated captions
         })),
     }
     
@@ -383,21 +525,43 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, 0)
 
   // Clamp currentTime if it's past the timeline end (e.g., after deleting clips)
+  // But don't clamp while scrubbing - allow user to drag past the end
   useEffect(() => {
+    if (isScrubbing) return // Don't clamp while actively scrubbing
+    
     if (timelineEndTime > 0 && currentTime > timelineEndTime) {
       setCurrentTime(timelineEndTime)
     } else if (timelineEndTime === 0 && currentTime > 0) {
       // No clips left, reset to 0
       setCurrentTime(0)
     }
-  }, [timelineEndTime, currentTime])
+  }, [timelineEndTime, currentTime, isScrubbing])
 
   // Find clip under the playhead
-  const activeClip = sortedVideoClips.find(
-    (clip) =>
-      playheadPixels >= clip.startTime &&
-      playheadPixels < clip.startTime + clip.duration
-  ) ?? null
+  // When multiple clips overlap, prioritize the topmost track (V2 > V1 > A2 > A1)
+  const tracks = ["V2", "V1", "A2", "A1"]
+  const activeClip = (() => {
+    // Find all clips at the current playhead position
+    const clipsAtPlayhead = sortedVideoClips.filter(
+      (clip) =>
+        playheadPixels >= clip.startTime &&
+        playheadPixels < clip.startTime + clip.duration
+    )
+    
+    if (clipsAtPlayhead.length === 0) return null
+    
+    // If only one clip, return it
+    if (clipsAtPlayhead.length === 1) return clipsAtPlayhead[0]
+    
+    // If multiple clips overlap, return the one on the highest track (topmost)
+    // Higher track = lower index in tracks array (V2=0, V1=1, etc.)
+    return clipsAtPlayhead.reduce((topmost, clip) => {
+      const topmostIndex = tracks.indexOf(topmost.trackId)
+      const clipIndex = tracks.indexOf(clip.trackId)
+      // Lower index = higher track = topmost
+      return clipIndex < topmostIndex ? clip : topmost
+    })
+  })()
 
   // Calculate how far into the active clip we are (in seconds)
   // Calculate how far into the source media we should be
@@ -421,6 +585,87 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     return null
   })()
 
+  // Generate captions for a media file using the transcribe API
+  const generateCaptions = useCallback(async (mediaId: string, options?: { language?: string; prompt?: string }) => {
+    const media = mediaFiles.find((m) => m.id === mediaId)
+    if (!media || !media.storageUrl) {
+      console.error("Media not found or not uploaded yet")
+      return
+    }
+
+    // Mark as generating
+    setMediaFiles((prev) =>
+      prev.map((m) =>
+        m.id === mediaId ? { ...m, captionsGenerating: true } : m
+      )
+    )
+
+    try {
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaId,
+          storageUrl: media.storageUrl,
+          language: options?.language,
+          prompt: options?.prompt,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Transcription failed")
+      }
+
+      const data = await response.json()
+      
+      // Update media with captions
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId
+            ? { ...m, captions: data.captions, captionsGenerating: false }
+            : m
+        )
+      )
+      setHasUnsavedChanges(true)
+    } catch (error) {
+      console.error("Caption generation error:", error)
+      // Clear generating state on error
+      setMediaFiles((prev) =>
+        prev.map((m) =>
+          m.id === mediaId ? { ...m, captionsGenerating: false } : m
+        )
+      )
+    }
+  }, [mediaFiles])
+
+  // Update captions for a media file directly
+  const updateMediaCaptions = useCallback((mediaId: string, captions: Caption[]) => {
+    setMediaFiles((prev) =>
+      prev.map((m) =>
+        m.id === mediaId ? { ...m, captions } : m
+      )
+    )
+    setHasUnsavedChanges(true)
+  }, [])
+
+  // Get captions for a specific clip, filtered by the clip's time range in the source media
+  const getCaptionsForClip = useCallback((clipId: string): Caption[] => {
+    const clip = timelineClips.find((c) => c.id === clipId)
+    if (!clip) return []
+
+    const media = mediaFiles.find((m) => m.id === clip.mediaId)
+    if (!media || !media.captions) return []
+
+    // Calculate clip's time range in source media
+    const clipStartInMedia = clip.mediaOffset / PIXELS_PER_SECOND
+    const clipEndInMedia = clipStartInMedia + (clip.duration / PIXELS_PER_SECOND)
+
+    // Filter captions that fall within the clip's range
+    return media.captions.filter((caption) =>
+      caption.start >= clipStartInMedia && caption.end <= clipEndInMedia
+    )
+  }, [timelineClips, mediaFiles])
+
   return (
     <EditorContext.Provider
       value={{
@@ -434,12 +679,21 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         updateClip,
         removeClip,
         splitClip,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
+        copyClip,
+        pasteClip,
+        canPaste,
         selectedClipId,
         setSelectedClipId,
         currentTime,
         setCurrentTime,
         isPlaying,
         setIsPlaying,
+        isScrubbing,
+        setIsScrubbing,
         getMediaForClip,
         previewMedia,
         activeClip,
@@ -455,6 +709,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         setIsEyedropperActive,
         onColorSampled: colorSampledCallback,
         setColorSampledCallback,
+        generateCaptions,
+        updateMediaCaptions,
+        getCaptionsForClip,
+        showCaptions,
+        setShowCaptions,
+        captionStyle,
+        setCaptionStyle,
       }}
     >
       {children}
