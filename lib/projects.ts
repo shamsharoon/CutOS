@@ -34,6 +34,13 @@ export interface ClipEffects {
   contrast: number    // 0-200%
   saturate: number    // 0-200%
   hueRotate: number   // 0-360deg
+  chromakey?: {
+    enabled: boolean
+    keyColor: string      // Hex color to remove (e.g., "#00FF00")
+    similarity: number    // 0-1: How close colors must be to be removed
+    smoothness: number    // 0-1: Edge softness
+    spill: number         // 0-1: Spill suppression strength
+  }
 }
 
 export interface TimelineClipData {

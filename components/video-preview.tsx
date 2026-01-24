@@ -4,6 +4,7 @@ import { Play, Pause, SkipBack, SkipForward, Film } from "lucide-react"
 import { useRef, useEffect, useState, useCallback } from "react"
 import { useEditor, PIXELS_PER_SECOND, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 import type { ClipEffects } from "@/lib/projects"
+import { ChromakeyProcessor, type ChromakeyOptions } from "@/lib/chromakey"
 
 // Build CSS filter string from effects
 function buildFilterString(effects: ClipEffects): string {
@@ -60,12 +61,17 @@ export function VideoPreview() {
     timelineEndTime,
     sortedVideoClips,
     setProjectThumbnail,
+    isEyedropperActive,
+    onColorSampled,
   } = useEditor()
   
   const videoRef = useRef<HTMLVideoElement>(null)
   const scrubberRef = useRef<HTMLDivElement>(null)
   const animationRef = useRef<number | null>(null)
   const lastActiveClipIdRef = useRef<string | null>(null)
+  const chromakeyCanvasRef = useRef<HTMLCanvasElement>(null)
+  const chromakeyProcessorRef = useRef<ChromakeyProcessor | null>(null)
+  const chromakeyAnimationRef = useRef<number | null>(null)
   
   const [displayTime, setDisplayTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -78,6 +84,7 @@ export function VideoPreview() {
 
   const activeClipTransform = activeClip?.transform ?? DEFAULT_CLIP_TRANSFORM
   const activeClipEffects = activeClip?.effects ?? DEFAULT_CLIP_EFFECTS
+  const chromakeyEnabled = activeClipEffects.chromakey?.enabled ?? false
   
   // Build the filter string from effects
   const filterString = buildFilterString(activeClipEffects)
@@ -216,6 +223,77 @@ export function VideoPreview() {
     }
   }, [captureThumbnail, thumbnailCaptured])
 
+  // Initialize chromakey processor when canvas is available
+  useEffect(() => {
+    if (!chromakeyCanvasRef.current) return
+
+    // Dispose existing processor if it exists
+    if (chromakeyProcessorRef.current) {
+      chromakeyProcessorRef.current.dispose()
+      chromakeyProcessorRef.current = null
+    }
+
+    // Create new processor
+    const processor = new ChromakeyProcessor(chromakeyCanvasRef.current)
+    if (processor.isReady()) {
+      chromakeyProcessorRef.current = processor
+    } else {
+      console.warn("Chromakey processor failed to initialize")
+    }
+
+    return () => {
+      if (chromakeyProcessorRef.current) {
+        chromakeyProcessorRef.current.dispose()
+        chromakeyProcessorRef.current = null
+      }
+    }
+  }, [chromakeyEnabled, activeClip?.id]) // Re-initialize when chromakey is toggled or clip changes
+
+  // Process chromakey frames when enabled
+  useEffect(() => {
+    if (!chromakeyEnabled || !chromakeyProcessorRef.current || !videoRef.current || !chromakeyCanvasRef.current) {
+      if (chromakeyAnimationRef.current) {
+        cancelAnimationFrame(chromakeyAnimationRef.current)
+        chromakeyAnimationRef.current = null
+      }
+      return
+    }
+
+    const processor = chromakeyProcessorRef.current
+    const video = videoRef.current
+    const canvas = chromakeyCanvasRef.current
+    const chromakeyOptions: ChromakeyOptions = {
+      keyColor: activeClipEffects.chromakey?.keyColor ?? "#00FF00",
+      similarity: activeClipEffects.chromakey?.similarity ?? 0.4,
+      smoothness: activeClipEffects.chromakey?.smoothness ?? 0.1,
+      spill: activeClipEffects.chromakey?.spill ?? 0.3,
+    }
+
+    const processFrame = () => {
+      // Check if video has loaded and is ready
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        const success = processor.processFrame(video, chromakeyOptions)
+        if (!success) {
+          console.warn("Failed to process chromakey frame")
+        }
+      }
+      chromakeyAnimationRef.current = requestAnimationFrame(processFrame)
+    }
+
+    // Wait a bit for video to be ready, then start processing
+    const timeoutId = setTimeout(() => {
+      processFrame()
+    }, 100)
+
+    return () => {
+      clearTimeout(timeoutId)
+      if (chromakeyAnimationRef.current) {
+        cancelAnimationFrame(chromakeyAnimationRef.current)
+        chromakeyAnimationRef.current = null
+      }
+    }
+  }, [chromakeyEnabled, activeClipEffects.chromakey, activeClip?.id, previewMedia?.id])
+
   // Keep display time in sync during playback via animation frame
   useEffect(() => {
     if (!isPlaying) {
@@ -242,6 +320,66 @@ export function VideoPreview() {
     }
     
     setIsPlaying(!isPlaying)
+  }
+
+  // Handle color sampling from video
+  const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement | HTMLCanvasElement>) => {
+    if (isEyedropperActive && onColorSampled) {
+      e.stopPropagation()
+      
+      const target = e.currentTarget
+      const rect = target.getBoundingClientRect()
+      
+      // Get the actual video/canvas dimensions
+      let sourceWidth: number
+      let sourceHeight: number
+      
+      if (target instanceof HTMLVideoElement) {
+        sourceWidth = target.videoWidth || rect.width
+        sourceHeight = target.videoHeight || rect.height
+      } else if (target instanceof HTMLCanvasElement) {
+        sourceWidth = target.width
+        sourceHeight = target.height
+      } else {
+        return
+      }
+      
+      // Calculate the click position in source coordinates
+      const scaleX = sourceWidth / rect.width
+      const scaleY = sourceHeight / rect.height
+      const x = Math.floor((e.clientX - rect.left) * scaleX)
+      const y = Math.floor((e.clientY - rect.top) * scaleY)
+      
+      // Create a temporary canvas to sample the color
+      const canvas = document.createElement("canvas")
+      canvas.width = sourceWidth
+      canvas.height = sourceHeight
+      const ctx = canvas.getContext("2d")
+      
+      if (ctx) {
+        try {
+          if (target instanceof HTMLVideoElement) {
+            ctx.drawImage(target, 0, 0, sourceWidth, sourceHeight)
+          } else if (target instanceof HTMLCanvasElement) {
+            ctx.drawImage(target, 0, 0, sourceWidth, sourceHeight)
+          }
+          
+          const imageData = ctx.getImageData(Math.max(0, Math.min(x, sourceWidth - 1)), Math.max(0, Math.min(y, sourceHeight - 1)), 1, 1)
+          const [r, g, b] = imageData.data
+          
+          // Ensure we have valid color values
+          if (typeof r === 'number' && typeof g === 'number' && typeof b === 'number' && 
+              !isNaN(r) && !isNaN(g) && !isNaN(b) && 
+              r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
+            onColorSampled(r, g, b)
+          }
+        } catch (error) {
+          console.warn("Failed to sample color:", error)
+        }
+      }
+    } else {
+      handlePlayPause()
+    }
   }
 
   const handleSkipBack = () => {
@@ -328,19 +466,35 @@ export function VideoPreview() {
         <div className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-lg border border-border bg-black">
           {previewMedia && activeClip ? (
             <>
+              {/* Video element - always present, behind canvas when chromakey is enabled */}
               <video
                 ref={videoRef}
                 key={previewMedia.id} // Force remount when media changes
                 src={previewMedia.objectUrl}
                 crossOrigin="anonymous"
-                className="h-full w-full object-contain cursor-pointer"
-                style={videoStyle}
-                onClick={handlePlayPause}
+                className={chromakeyEnabled ? "absolute inset-0 h-full w-full object-contain pointer-events-none -z-10" : `h-full w-full object-contain ${isEyedropperActive ? "cursor-crosshair" : "cursor-pointer"}`}
+                style={chromakeyEnabled ? { ...videoStyle, visibility: "hidden" } : videoStyle}
+                onClick={chromakeyEnabled ? undefined : handleVideoClick}
                 onLoadedMetadata={handleLoadedMetadata}
                 onCanPlay={handleCanPlay}
                 muted={false}
                 playsInline
               />
+              {/* Chromakey canvas - shown when chromakey is enabled */}
+              {chromakeyEnabled && (
+                <canvas
+                  ref={chromakeyCanvasRef}
+                  className={`absolute inset-0 h-full w-full z-10 ${isEyedropperActive ? "cursor-crosshair" : "cursor-pointer"}`}
+                  style={videoStyle}
+                  onClick={handleVideoClick}
+                />
+              )}
+              {/* Debug indicator when eyedropper is active */}
+              {isEyedropperActive && (
+                <div className="absolute top-2 left-2 z-20 rounded bg-primary/90 px-2 py-1 text-xs text-primary-foreground">
+                  Click on video to sample color
+                </div>
+              )}
               {/* VHS Scanlines Overlay */}
               {activeClipEffects.preset === "vhs" && (
                 <div 

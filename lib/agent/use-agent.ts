@@ -172,6 +172,33 @@ export function useVideoAgent() {
           break
         }
 
+        case "APPLY_CHROMAKEY": {
+          const targetClip = editor.timelineClips.find((c) => c.id === action.payload.clipId)
+          if (targetClip) {
+            const currentChromakey = targetClip.effects.chromakey ?? {
+              enabled: false,
+              keyColor: "#00FF00",
+              similarity: 0.4,
+              smoothness: 0.1,
+              spill: 0.3,
+            }
+            
+            editor.updateClip(action.payload.clipId, {
+              effects: {
+                ...targetClip.effects,
+                chromakey: {
+                  enabled: action.payload.enabled,
+                  keyColor: action.payload.keyColor ?? currentChromakey.keyColor,
+                  similarity: action.payload.similarity ?? currentChromakey.similarity,
+                  smoothness: action.payload.smoothness ?? currentChromakey.smoothness,
+                  spill: action.payload.spill ?? currentChromakey.spill,
+                },
+              },
+            })
+          }
+          break
+        }
+
         case "ADD_MEDIA_TO_TIMELINE": {
           const media = editor.mediaFiles.find((m) => m.id === action.payload.mediaId)
           if (!media) break
@@ -322,6 +349,19 @@ export function useVideoAgent() {
               payload: {
                 clipId: tc.input.clipId as string,
                 effect: tc.input.effect as string,
+              },
+            }
+            break
+          case "applyChromakey":
+            action = {
+              action: "APPLY_CHROMAKEY",
+              payload: {
+                clipId: tc.input.clipId as string,
+                enabled: tc.input.enabled as boolean,
+                keyColor: tc.input.keyColor as string | undefined,
+                similarity: tc.input.similarity as number | undefined,
+                smoothness: tc.input.smoothness as number | undefined,
+                spill: tc.input.spill as number | undefined,
               },
             }
             break

@@ -11,6 +11,7 @@ export type AgentAction =
   | { action: "DELETE_ALL_CLIPS"; payload: { trackId?: string } }
   | { action: "MOVE_CLIP"; payload: { clipId: string; newStartTimeSeconds?: number; newTrackId?: string } }
   | { action: "APPLY_EFFECT"; payload: { clipId: string; effect: string } }
+  | { action: "APPLY_CHROMAKEY"; payload: { clipId: string; enabled: boolean; keyColor?: string; similarity?: number; smoothness?: number; spill?: number } }
   | { action: "ADD_MEDIA_TO_TIMELINE"; payload: { mediaId: string; trackId: string; startTimeSeconds?: number } }
 
 // Define the input schemas
@@ -81,6 +82,33 @@ const applyEffectInput = z.object({
   effect: z
     .enum(["none", "grayscale", "sepia", "invert", "cyberpunk", "noir", "vhs", "glitch", "ascii"])
     .describe("The effect preset to apply"),
+})
+
+const applyChromakeyInput = z.object({
+  clipId: z.string().describe("The ID of the clip to apply green screen removal to"),
+  enabled: z.boolean().describe("Whether to enable or disable chromakey (green screen removal)"),
+  keyColor: z
+    .string()
+    .optional()
+    .describe("Hex color to remove (e.g., '#00FF00' for green, '#0000FF' for blue). Defaults to green (#00FF00) if not specified."),
+  similarity: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("How close colors must be to the key color to be removed (0-1). Higher values remove more colors. Defaults to 0.4."),
+  smoothness: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Edge softness (0-1). Higher values create softer edges. Defaults to 0.1."),
+  spill: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Spill suppression strength (0-1). Removes color bleed from edges. Defaults to 0.3."),
 })
 
 const addMediaToTimelineInput = z.object({
@@ -193,6 +221,26 @@ export const videoEditingTools = {
       return {
         action: "APPLY_EFFECT" as const,
         payload: { clipId: input.clipId, effect: input.effect },
+      }
+    },
+  }),
+
+  // Tool: Apply chromakey (green screen removal)
+  applyChromakey: tool({
+    description:
+      "Remove green screen (or any color) from a video clip, making it transparent. IMPORTANT: Before using this tool, you MUST verify and confirm which clip you're applying chromakey to by stating the clip's name/label and ID. Use this when the user wants to remove a green screen, blue screen, or any colored background from a video. You can enable/disable it, and optionally adjust the color to remove, similarity threshold, edge smoothness, and spill suppression. Always confirm the clip details before applying.",
+    inputSchema: applyChromakeyInput,
+    execute: async (input: z.infer<typeof applyChromakeyInput>) => {
+      return {
+        action: "APPLY_CHROMAKEY" as const,
+        payload: {
+          clipId: input.clipId,
+          enabled: input.enabled,
+          keyColor: input.keyColor,
+          similarity: input.similarity,
+          smoothness: input.smoothness,
+          spill: input.spill,
+        },
       }
     },
   }),

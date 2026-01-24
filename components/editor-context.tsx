@@ -47,6 +47,13 @@ export const DEFAULT_CLIP_EFFECTS: ClipEffects = {
   contrast: 100,
   saturate: 100,
   hueRotate: 0,
+  chromakey: {
+    enabled: false,
+    keyColor: "#00FF00", // Default green screen color
+    similarity: 0.4,      // Default similarity threshold
+    smoothness: 0.1,      // Default edge softness
+    spill: 0.3,          // Default spill suppression
+  },
 }
 
 interface EditorContextType {
@@ -98,6 +105,12 @@ interface EditorContextType {
   
   // Thumbnail
   setProjectThumbnail: (thumbnail: string) => void
+  
+  // Color picker eyedropper
+  isEyedropperActive: boolean
+  setIsEyedropperActive: (active: boolean) => void
+  onColorSampled?: (r: number, g: number, b: number) => void
+  setColorSampledCallback: (callback: ((r: number, g: number, b: number) => void) | undefined) => void
 }
 
 const EditorContext = createContext<EditorContextType | null>(null)
@@ -111,6 +124,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [projectThumbnail, setProjectThumbnail] = useState<string | null>(null)
+  const [isEyedropperActive, setIsEyedropperActive] = useState(false)
+  const [colorSampledCallback, setColorSampledCallback] = useState<((r: number, g: number, b: number) => void) | undefined>(undefined)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -426,6 +441,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         isSaving,
         hasUnsavedChanges,
         setProjectThumbnail,
+        isEyedropperActive,
+        setIsEyedropperActive,
+        onColorSampled: colorSampledCallback,
+        setColorSampledCallback,
       }}
     >
       {children}

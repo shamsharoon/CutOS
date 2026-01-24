@@ -3,9 +3,14 @@
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+<<<<<<< HEAD
 import { Wand2 } from "lucide-react"
+=======
+import { Sparkles, History, Wand2, Eye, EyeOff } from "lucide-react"
+>>>>>>> 99b5812 (feat: agentic greenscreen works via chromakey)
 import { useEditor, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 import type { EffectPreset, ClipEffects, ClipTransform } from "@/lib/projects"
+import { ColorPicker } from "./ui/color-picker"
 
 const EFFECT_PRESETS: { id: EffectPreset; label: string }[] = [
   { id: "none", label: "None" },
@@ -77,6 +82,46 @@ function EffectsTab() {
     if (!selectedClipId) return
     updateClip(selectedClipId, {
       effects: { ...effects, [key]: value }
+    })
+  }
+
+  const handleChromakeyToggle = (enabled: boolean) => {
+    if (!selectedClipId) return
+    const currentChromakey = effects.chromakey ?? {
+      enabled: false,
+      keyColor: "#00FF00",
+      similarity: 0.4,
+      smoothness: 0.1,
+      spill: 0.3,
+    }
+    updateClip(selectedClipId, {
+      effects: {
+        ...effects,
+        chromakey: {
+          ...currentChromakey,
+          enabled,
+        },
+      },
+    })
+  }
+
+  const handleChromakeyChange = (key: "keyColor" | "similarity" | "smoothness" | "spill", value: string | number) => {
+    if (!selectedClipId) return
+    const currentChromakey = effects.chromakey ?? {
+      enabled: false,
+      keyColor: "#00FF00",
+      similarity: 0.4,
+      smoothness: 0.1,
+      spill: 0.3,
+    }
+    updateClip(selectedClipId, {
+      effects: {
+        ...effects,
+        chromakey: {
+          ...currentChromakey,
+          [key]: value,
+        },
+      },
     })
   }
 
@@ -273,6 +318,102 @@ function EffectsTab() {
                   onChange={(e) => handleEffectChange("hueRotate", parseInt(e.target.value))}
                   className="w-full accent-primary"
                 />
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Chromakey Accordion */}
+        <AccordionItem value="chromakey" className="border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <AccordionTrigger className="flex-1 text-xs font-medium hover:no-underline py-0">
+              <span>Green Screen</span>
+            </AccordionTrigger>
+            <button
+              type="button"
+              onClick={() => handleChromakeyToggle(!(effects.chromakey?.enabled ?? false))}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors ${
+                effects.chromakey?.enabled
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
+            >
+              {effects.chromakey?.enabled ? (
+                <>
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>On</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="h-3.5 w-3.5" />
+                  <span>Off</span>
+                </>
+              )}
+            </button>
+          </div>
+          <AccordionContent className="px-3 pb-3">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Key Color</label>
+                <ColorPicker
+                  value={effects.chromakey?.keyColor ?? "#00FF00"}
+                  onChange={(color) => handleChromakeyChange("keyColor", color)}
+                  disabled={!effects.chromakey?.enabled}
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Similarity</span>
+                  <span className="text-muted-foreground">{((effects.chromakey?.similarity ?? 0.4) * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={((effects.chromakey?.similarity ?? 0.4) * 100)}
+                  onChange={(e) => handleChromakeyChange("similarity", parseInt(e.target.value) / 100)}
+                  className="w-full accent-primary"
+                  disabled={!effects.chromakey?.enabled}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">How close colors must be to be removed</p>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Smoothness</span>
+                  <span className="text-muted-foreground">{((effects.chromakey?.smoothness ?? 0.1) * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={((effects.chromakey?.smoothness ?? 0.1) * 100)}
+                  onChange={(e) => handleChromakeyChange("smoothness", parseInt(e.target.value) / 100)}
+                  className="w-full accent-primary"
+                  disabled={!effects.chromakey?.enabled}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Edge softness</p>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Spill Suppression</span>
+                  <span className="text-muted-foreground">{((effects.chromakey?.spill ?? 0.3) * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={((effects.chromakey?.spill ?? 0.3) * 100)}
+                  onChange={(e) => handleChromakeyChange("spill", parseInt(e.target.value) / 100)}
+                  className="w-full accent-primary"
+                  disabled={!effects.chromakey?.enabled}
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Removes color bleed from edges</p>
               </div>
             </div>
           </AccordionContent>
