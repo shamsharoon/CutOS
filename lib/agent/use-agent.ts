@@ -234,8 +234,6 @@ export function useVideoAgent() {
   const { messages, sendMessage, status, error } = useChat({
     transport,
     onToolCall: ({ toolCall }) => {
-      // Debug: log the tool call structure
-      console.log("onToolCall received:", JSON.stringify(toolCall, null, 2))
 
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
       // The tool executes server-side and we get the result
@@ -340,14 +338,10 @@ export function useVideoAgent() {
         }
 
         if (action) {
-          console.log("Executing action from tool call:", action)
           processedToolCallsRef.current.add(tc.toolCallId)
           handleAction(action)
         }
       }
-    },
-    onFinish: () => {
-      console.log("onFinish called")
     },
   })
 
@@ -397,13 +391,8 @@ export function useVideoAgent() {
   // Process tool invocations from messages
   // In AI SDK v6, tool results come as parts of the message
   useEffect(() => {
-    let hasNewActions = false
-
     for (const message of messages) {
       if (message.role === "assistant" && message.parts) {
-        // Debug: log all parts to understand the structure
-        console.log("Assistant message parts:", message.parts.map(p => ({ type: (p as Record<string, unknown>).type, state: (p as Record<string, unknown>).state })))
-
         for (const part of message.parts) {
           // Check for tool-result parts (AI SDK v6 uses tool-result type)
           // Also check for tool-invocation with state === "output"
@@ -429,31 +418,26 @@ export function useVideoAgent() {
 
             const action = result as AgentAction
             if (action && action.action) {
-              console.log("Found tool result in message:", partAny.type, action)
               processedToolCallsRef.current.add(toolId)
               handleAction(action)
-              hasNewActions = true
             }
           }
         }
       }
     }
 
-    if (hasNewActions) {
-      console.log("Processed new tool actions from messages")
-    }
   }, [messages, handleAction])
 
   // Convert UIMessage[] to simpler format for display
-  const displayMessages = useMemo(() => {
-    return messages.map((msg) => ({
-      role: msg.role as "user" | "assistant",
-      content: getMessageText(msg),
-    }))
-  }, [messages])
+  // Don't use useMemo - we want to recompute on every render to catch streaming updates
+  const displayMessages = messages.map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: getMessageText(msg),
+  }))
 
   return {
     messages: displayMessages,
+    status, // expose status for more granular UI control
     input,
     setInput,
     handleInputChange,
