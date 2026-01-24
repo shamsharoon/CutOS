@@ -151,13 +151,34 @@ export function VideoPreview() {
     // If we switched to a different clip, update the video source and seek
     if (lastActiveClipIdRef.current !== activeClip.id) {
       lastActiveClipIdRef.current = activeClip.id
-      videoRef.current.currentTime = clipTimeOffset
+      
+      // Clamp clipTimeOffset to valid video duration range
+      const videoDuration = videoRef.current.duration
+      if (!isNaN(videoDuration) && videoDuration > 0) {
+        const clampedTime = Math.max(0, Math.min(clipTimeOffset, videoDuration))
+        videoRef.current.currentTime = clampedTime
+      }
       
       if (isPlaying) {
         videoRef.current.play().catch(() => {})
       }
     }
   }, [activeClip?.id, previewMedia, clipTimeOffset, isPlaying])
+
+  // Seek video when scrubbing (not playing)
+  useEffect(() => {
+    if (!videoRef.current || !activeClip || !previewMedia || isPlaying) return
+    
+    // Only seek if clipTimeOffset is within valid video duration range
+    // If dragging past the video, don't try to seek (will show last frame)
+    const videoDuration = videoRef.current.duration
+    if (isNaN(videoDuration) || videoDuration === 0) return // Wait for video to load
+    
+    // Only seek if within bounds, otherwise let it stay at the last frame
+    if (clipTimeOffset >= 0 && clipTimeOffset <= videoDuration) {
+      videoRef.current.currentTime = clipTimeOffset
+    }
+  }, [clipTimeOffset, activeClip, previewMedia, isPlaying])
 
   // Keep video in sync during playback
   useEffect(() => {

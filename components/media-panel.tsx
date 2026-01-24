@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus } from "lucide-react"
+import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic, Check, AlertCircle, MessageSquarePlus, Zap } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
 import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
 import {
@@ -470,7 +470,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 
 function AgentTab() {
   const { messages, input, handleInputChange, handleSubmit, isLoading, isLoadingHistory, sendQuickAction, clearChat, status, sendMessage } = useVideoAgent()
-  const { selectedClipId, currentTime } = useEditor()
+  const { selectedClipId, currentTime, timelineClips } = useEditor()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -615,6 +615,33 @@ function AgentTab() {
           <MessageSquarePlus className="h-3 w-3" />
           New Chat
         </motion.button>
+      </div>
+
+      {/* Smart Enhance - One Stop Shop */}
+      <div className="border-b border-border p-3">
+        <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Smart Enhance</div>
+        <motion.button
+          onClick={() => {
+            const message = "Analyze my video timeline and automatically apply smart improvements. Look at all clips and suggest enhancements like: trimming dead air at the start/end, applying cinematic effects, removing green screens if present, improving pacing with strategic splits, and any other optimizations. Apply all suggested improvements automatically using your tools."
+            sendQuickAction(message)
+          }}
+          disabled={isLoading || timelineClips.length === 0}
+          className="w-full flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary/20 to-primary/10 border border-primary/30 px-3 py-2.5 text-[11px] font-medium text-primary hover:from-primary/30 hover:to-primary/20 hover:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
+          whileHover={{ scale: isLoading || timelineClips.length === 0 ? 1 : 1.02 }}
+          whileTap={{ scale: isLoading || timelineClips.length === 0 ? 1 : 0.98 }}
+          transition={{ type: "spring", stiffness: 400, damping: 17 }}
+        >
+          <motion.div
+            animate={isLoading ? { rotate: 360 } : { rotate: 0 }}
+            transition={{ duration: 2, repeat: isLoading ? Infinity : 0, ease: "linear" }}
+          >
+            <Zap className="h-4 w-4" />
+          </motion.div>
+          <span>Auto Enhance Video</span>
+        </motion.button>
+        <p className="mt-1.5 text-[9px] text-muted-foreground/80 text-center">
+          AI analyzes and applies multiple improvements automatically
+        </p>
       </div>
 
       {/* Quick Actions */}
