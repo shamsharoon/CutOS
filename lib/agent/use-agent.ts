@@ -807,24 +807,30 @@ export function useVideoAgent() {
     if (!editor.projectId) return
 
     try {
+      // Clear chat session from database
       const { error } = await clearChatSession(editor.projectId)
       if (error) {
         console.error("Failed to clear chat:", error)
         return
       }
 
+      // Reset useChat messages to empty array
+      if (setMessages) {
+        setMessages([])
+      }
+
       // Reset local state
       setSavedMessages([])
+      setInitialMessages([])
+      setInput("")
       processedToolCallsRef.current.clear()
       toolCallInfoRef.current.clear()
       lastSavedRef.current = ""
-
-      // Force page reload to reset useChat state
-      window.location.reload()
+      hasLoadedRef.current = false // Allow reloading history if needed
     } catch (err) {
       console.error("Error clearing chat:", err)
     }
-  }, [editor.projectId])
+  }, [editor.projectId, setMessages])
 
   // Use messages from useChat (which now includes initialMessages)
   // The displayMessages are already derived from useChat's messages, so we can use them directly

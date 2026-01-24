@@ -57,7 +57,9 @@ export function VideoPreview() {
     currentTime, 
     setCurrentTime,
     activeClip,
+    backgroundClip,
     clipTimeOffset,
+    backgroundClipTimeOffset,
     timelineEndTime,
     sortedVideoClips,
     setProjectThumbnail,
@@ -66,12 +68,16 @@ export function VideoPreview() {
     showCaptions,
     mediaFiles,
     captionStyle,
+    getMediaForClip,
+    projectResolution,
   } = useEditor()
   
   const videoRef = useRef<HTMLVideoElement>(null)
+  const backgroundVideoRef = useRef<HTMLVideoElement>(null)
   const scrubberRef = useRef<HTMLDivElement>(null)
   const animationRef = useRef<number | null>(null)
   const lastActiveClipIdRef = useRef<string | null>(null)
+  const lastBackgroundClipIdRef = useRef<string | null>(null)
   const chromakeyCanvasRef = useRef<HTMLCanvasElement>(null)
   const chromakeyProcessorRef = useRef<ChromakeyProcessor | null>(null)
   const chromakeyAnimationRef = useRef<number | null>(null)
@@ -88,6 +94,12 @@ export function VideoPreview() {
   const activeClipTransform = activeClip?.transform ?? DEFAULT_CLIP_TRANSFORM
   const activeClipEffects = activeClip?.effects ?? DEFAULT_CLIP_EFFECTS
   const chromakeyEnabled = activeClipEffects.chromakey?.enabled ?? false
+  
+  // Get background clip media and transform
+  const backgroundMedia = backgroundClip ? getMediaForClip(backgroundClip.id) ?? null : null
+  const backgroundClipTransform = backgroundClip?.transform ?? DEFAULT_CLIP_TRANSFORM
+  const backgroundClipEffects = backgroundClip?.effects ?? DEFAULT_CLIP_EFFECTS
+  const backgroundFilterString = buildFilterString(backgroundClipEffects)
   
   // Build the filter string from effects
   const filterString = buildFilterString(activeClipEffects)
@@ -165,6 +177,83 @@ export function VideoPreview() {
     }
   }, [activeClip?.id, previewMedia, clipTimeOffset, isPlaying])
 
+  // Sync background video when chromakey is enabled (only on clip change)
+  useEffect(() => {
+    if (!backgroundVideoRef.current || !backgroundClip || !backgroundMedia) return
+
+    // If we switched to a different background clip, update the video source and seek
+    if (lastBackgroundClipIdRef.current !== backgroundClip.id) {
+      lastBackgroundClipIdRef.current = backgroundClip.id
+      
+      // Wait for video metadata to load before seeking
+      const handleLoadedMetadata = () => {
+        if (!backgroundVideoRef.current) return
+        const videoDuration = backgroundVideoRef.current.duration
+        if (!isNaN(videoDuration) && videoDuration > 0) {
+          const clampedTime = Math.max(0, Math.min(backgroundClipTimeOffset, videoDuration))
+          backgroundVideoRef.current.currentTime = clampedTime
+        }
+      }
+      
+      if (backgroundVideoRef.current.readyState >= 1) {
+        // Metadata already loaded
+        handleLoadedMetadata()
+      } else {
+        // Wait for metadata
+        backgroundVideoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true })
+      }
+      
+      if (isPlaying) {
+        backgroundVideoRef.current.play().catch(() => {})
+      }
+    }
+  }, [backgroundClip?.id, backgroundMedia?.id, isPlaying])
+
+  // Seek background video when scrubbing (not playing) - debounced to prevent lag
+  useEffect(() => {
+    if (!backgroundVideoRef.current || !backgroundClip || !backgroundMedia || isPlaying) return
+    
+    // Debounce seeks to avoid lag when dragging the playhead
+    const timeoutId = setTimeout(() => {
+      if (!backgroundVideoRef.current || !backgroundClip || isPlaying) return
+      
+      // Only seek if backgroundClipTimeOffset is within valid video duration range
+      const videoDuration = backgroundVideoRef.current.duration
+      if (isNaN(videoDuration) || videoDuration === 0) return // Wait for video to load
+      
+      // Only seek if within bounds
+      if (backgroundClipTimeOffset >= 0 && backgroundClipTimeOffset <= videoDuration) {
+        backgroundVideoRef.current.currentTime = backgroundClipTimeOffset
+      }
+    }, 100) // Debounce to batch rapid seeks during scrubbing
+    
+    return () => clearTimeout(timeoutId)
+  }, [backgroundClipTimeOffset, backgroundClip, backgroundMedia, isPlaying])
+
+  // Keep background video in sync during playback (throttled to prevent lag)
+  useEffect(() => {
+    if (!backgroundVideoRef.current || !backgroundClip || !isPlaying || isSeeking) return
+    
+    // Use a throttled interval to check sync instead of running on every frame
+    const syncInterval = setInterval(() => {
+      if (!backgroundVideoRef.current || !backgroundClip || !isPlaying) return
+      
+      // Calculate expected time from current timeline position
+      const playheadPixels = currentTime * PIXELS_PER_SECOND
+      const expectedTime = ((playheadPixels - backgroundClip.startTime) + backgroundClip.mediaOffset) / PIXELS_PER_SECOND
+      const actualTime = backgroundVideoRef.current.currentTime
+      const drift = Math.abs(expectedTime - actualTime)
+      
+      // Only sync if drift is significant (more than 0.5 seconds) to avoid micro-seeks
+      if (drift > 0.5 && backgroundVideoRef.current.duration > 0) {
+        const clampedTime = Math.max(0, Math.min(expectedTime, backgroundVideoRef.current.duration))
+        backgroundVideoRef.current.currentTime = clampedTime
+      }
+    }, 2000) // Check every 2 seconds instead of every frame
+    
+    return () => clearInterval(syncInterval)
+  }, [backgroundClip, isPlaying, isSeeking, currentTime])
+
   // Seek video when scrubbing (not playing)
   useEffect(() => {
     if (!videoRef.current || !activeClip || !previewMedia || isPlaying) return
@@ -206,6 +295,19 @@ export function VideoPreview() {
       videoRef.current.pause()
     }
   }, [isPlaying, previewMedia, setIsPlaying])
+
+  // Handle play/pause for background video
+  useEffect(() => {
+    if (!backgroundVideoRef.current || !backgroundMedia || !chromakeyEnabled) return
+
+    if (isPlaying) {
+      backgroundVideoRef.current.play().catch(() => {
+        // Silently fail - background video play errors shouldn't stop playback
+      })
+    } else {
+      backgroundVideoRef.current.pause()
+    }
+  }, [isPlaying, backgroundMedia, chromakeyEnabled])
 
   // Update duration when video metadata loads
   const handleLoadedMetadata = useCallback(() => {
@@ -285,6 +387,7 @@ export function VideoPreview() {
 
     const processor = chromakeyProcessorRef.current
     const video = videoRef.current
+    const backgroundVideo = backgroundVideoRef.current
     const canvas = chromakeyCanvasRef.current
     const chromakeyOptions: ChromakeyOptions = {
       keyColor: activeClipEffects.chromakey?.keyColor ?? "#00FF00",
@@ -296,6 +399,7 @@ export function VideoPreview() {
     const processFrame = () => {
       // Check if video has loaded and is ready
       if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        // Process chromakey - transparency will show background video through
         const success = processor.processFrame(video, chromakeyOptions)
         if (!success) {
           console.warn("Failed to process chromakey frame")
@@ -316,7 +420,7 @@ export function VideoPreview() {
         chromakeyAnimationRef.current = null
       }
     }
-  }, [chromakeyEnabled, activeClipEffects.chromakey, activeClip?.id, previewMedia?.id])
+  }, [chromakeyEnabled, activeClipEffects.chromakey, activeClip?.id, previewMedia?.id, backgroundClip?.id, backgroundMedia?.id])
 
   // Keep display time in sync during playback via animation frame
   useEffect(() => {
@@ -551,13 +655,56 @@ export function VideoPreview() {
 
   const captionData = getCurrentCaption()
 
+  // Calculate aspect ratio from project resolution (e.g., "1920x1080" -> 16:9)
+  const aspectRatio = (() => {
+    if (!projectResolution) return 16 / 9 // Default to 16:9
+    
+    const match = projectResolution.match(/(\d+)x(\d+)/)
+    if (!match) return 16 / 9
+    
+    const width = parseInt(match[1], 10)
+    const height = parseInt(match[2], 10)
+    if (width > 0 && height > 0) {
+      return width / height
+    }
+    return 16 / 9
+  })()
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Video Preview Area */}
       <div className="flex flex-1 min-h-0 items-center justify-center bg-black/40 p-4">
-        <div className="relative aspect-video w-full max-h-full max-w-5xl overflow-hidden rounded-lg border border-border bg-black">
+        <div 
+          className="relative overflow-hidden rounded-lg border border-border bg-black"
+          style={{ 
+            aspectRatio: `${aspectRatio}`,
+            width: 'min(100%, 80rem)',
+            maxWidth: '80rem',
+            maxHeight: '100%',
+            height: 'auto',
+            flexShrink: 0,
+          }}
+        >
           {previewMedia && activeClip ? (
             <>
+              {/* Background video - shown when chromakey is enabled and background clip exists */}
+              {chromakeyEnabled && backgroundMedia && backgroundClip && (
+                <video
+                  ref={backgroundVideoRef}
+                  key={`bg-${backgroundMedia.id}-${backgroundClip.id}`}
+                  src={backgroundMedia.objectUrl}
+                  crossOrigin="anonymous"
+                  className="absolute inset-0 h-full w-full object-contain pointer-events-none"
+                  style={{
+                    transform: `translate(${backgroundClipTransform.positionX}px, ${backgroundClipTransform.positionY}px) scale(${backgroundClipTransform.scale / 100})`,
+                    opacity: backgroundClipTransform.opacity / 100,
+                    filter: backgroundFilterString || undefined,
+                    zIndex: 0,
+                  }}
+                  muted={false}
+                  playsInline
+                />
+              )}
               {/* Video element - always present, behind canvas when chromakey is enabled */}
               <video
                 ref={videoRef}
@@ -572,12 +719,12 @@ export function VideoPreview() {
                 muted={false}
                 playsInline
               />
-              {/* Chromakey canvas - shown when chromakey is enabled */}
+              {/* Chromakey canvas - shown when chromakey is enabled, composited on top of background */}
               {chromakeyEnabled && (
                 <canvas
                   ref={chromakeyCanvasRef}
-                  className={`absolute inset-0 h-full w-full z-10 ${isEyedropperActive ? "cursor-crosshair" : "cursor-pointer"}`}
-                  style={videoStyle}
+                  className={`absolute inset-0 h-full w-full ${isEyedropperActive ? "cursor-crosshair" : "cursor-pointer"}`}
+                  style={{ ...videoStyle, zIndex: 1 }}
                   onClick={handleVideoClick}
                 />
               )}

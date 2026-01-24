@@ -240,6 +240,9 @@ export class ChromakeyProcessor {
 
   /**
    * Process a video frame and render it to the canvas with chromakey applied
+   * The canvas will have transparency where green screen is removed, allowing background video to show through
+   * @param video The foreground video with green screen
+   * @param options Chromakey processing options
    */
   processFrame(video: HTMLVideoElement, options: ChromakeyOptions): boolean {
     if (!this.initialized || !this.gl || !this.program) {
@@ -255,7 +258,7 @@ export class ChromakeyProcessor {
       gl.viewport(0, 0, video.videoWidth, video.videoHeight)
     }
 
-    // Clear with transparent background
+    // Clear with transparent background (background video will show through transparent areas)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
 

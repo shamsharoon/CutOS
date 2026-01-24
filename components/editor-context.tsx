@@ -62,6 +62,8 @@ interface EditorContextType {
   // Project
   projectId: string | null
   setProjectId: (id: string | null) => void
+  projectResolution: string | null // Project resolution (e.g., "1920x1080")
+  setProjectResolution: (resolution: string | null) => void
   
   // Media pool
   mediaFiles: MediaFile[]
@@ -102,7 +104,9 @@ interface EditorContextType {
   // Currently previewing media (from selection or playhead)
   previewMedia: MediaFile | null
   activeClip: TimelineClip | null // The clip currently at playhead
+  backgroundClip: TimelineClip | null // The clip below activeClip (for chromakey compositing)
   clipTimeOffset: number // How far into the active clip we are (in seconds)
+  backgroundClipTimeOffset: number // How far into the background clip we are (in seconds)
   
   // Timeline end time (for stopping playback)
   timelineEndTime: number
@@ -141,6 +145,7 @@ const EditorContext = createContext<EditorContextType | null>(null)
 
 export function EditorProvider({ children }: { children: ReactNode }) {
   const [projectId, setProjectId] = useState<string | null>(null)
+  const [projectResolution, setProjectResolution] = useState<string | null>(null)
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([])
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
@@ -530,34 +535,32 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Find clip under the playhead
   // When multiple clips overlap, prioritize the topmost track (V2 > V1 > A2 > A1)
   const tracks = ["V2", "V1", "A2", "A1"]
-  const activeClip = (() => {
-    // Find all clips at the current playhead position
-    const clipsAtPlayhead = sortedVideoClips.filter(
-      (clip) =>
-        playheadPixels >= clip.startTime &&
-        playheadPixels < clip.startTime + clip.duration
-    )
-    
-    if (clipsAtPlayhead.length === 0) return null
-    
-    // If only one clip, return it
-    if (clipsAtPlayhead.length === 1) return clipsAtPlayhead[0]
-    
-    // If multiple clips overlap, return the one on the highest track (topmost)
-    // Higher track = lower index in tracks array (V2=0, V1=1, etc.)
-    return clipsAtPlayhead.reduce((topmost, clip) => {
-      const topmostIndex = tracks.indexOf(topmost.trackId)
-      const clipIndex = tracks.indexOf(clip.trackId)
-      // Lower index = higher track = topmost
-      return clipIndex < topmostIndex ? clip : topmost
-    })
-  })()
+  const clipsAtPlayhead = sortedVideoClips.filter(
+    (clip) =>
+      playheadPixels >= clip.startTime &&
+      playheadPixels < clip.startTime + clip.duration
+  )
+  
+  // Sort clips by track (topmost first)
+  const sortedClipsAtPlayhead = [...clipsAtPlayhead].sort((a, b) => {
+    const aIndex = tracks.indexOf(a.trackId)
+    const bIndex = tracks.indexOf(b.trackId)
+    return aIndex - bIndex // Lower index = higher track = comes first
+  })
+  
+  const activeClip = sortedClipsAtPlayhead.length > 0 ? sortedClipsAtPlayhead[0] : null
+  const backgroundClip = sortedClipsAtPlayhead.length > 1 ? sortedClipsAtPlayhead[1] : null
 
   // Calculate how far into the active clip we are (in seconds)
   // Calculate how far into the source media we should be
   // This accounts for both the position on the timeline AND the clip's mediaOffset (for split clips)
   const clipTimeOffset = activeClip
     ? ((playheadPixels - activeClip.startTime) + activeClip.mediaOffset) / PIXELS_PER_SECOND
+    : 0
+  
+  // Calculate how far into the background clip we are (in seconds)
+  const backgroundClipTimeOffset = backgroundClip
+    ? ((playheadPixels - backgroundClip.startTime) + backgroundClip.mediaOffset) / PIXELS_PER_SECOND
     : 0
 
   // Determine preview media based on selection or active clip
@@ -661,6 +664,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       value={{
         projectId,
         setProjectId,
+        projectResolution,
+        setProjectResolution: setProjectResolution,
         mediaFiles,
         addMediaFiles,
         removeMediaFile,
@@ -687,7 +692,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         getMediaForClip,
         previewMedia,
         activeClip,
+        backgroundClip,
         clipTimeOffset,
+        backgroundClipTimeOffset,
         timelineEndTime,
         sortedVideoClips,
         loadTimelineData,

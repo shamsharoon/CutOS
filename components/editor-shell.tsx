@@ -30,7 +30,7 @@ function EditorContent({ projectId }: { projectId: string }) {
   const [isUpdatingName, setIsUpdatingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
-  const { setProjectId, loadTimelineData, saveProject, isSaving, hasUnsavedChanges, isPlaying, setIsPlaying, sortedVideoClips, currentTime, setCurrentTime, timelineEndTime, activeClip, splitClip, selectedClipId, removeClip, undo, redo, canUndo, canRedo, copyClip, pasteClip, canPaste } = useEditor()
+  const { setProjectId, setProjectResolution, loadTimelineData, saveProject, isSaving, hasUnsavedChanges, isPlaying, setIsPlaying, sortedVideoClips, currentTime, setCurrentTime, timelineEndTime, activeClip, splitClip, selectedClipId, removeClip, undo, redo, canUndo, canRedo, copyClip, pasteClip, canPaste } = useEditor()
 
   useEffect(() => {
     async function loadProject() {
@@ -45,6 +45,7 @@ function EditorContent({ projectId }: { projectId: string }) {
       
       setProject(data)
       setProjectId(data.id)
+      setProjectResolution(data.resolution)
       loadTimelineData(data.timeline_data)
       setIsLoading(false)
       }
