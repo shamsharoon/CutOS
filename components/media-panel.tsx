@@ -48,9 +48,8 @@ export function MediaPanel() {
               <motion.button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -136,11 +135,19 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
       video.muted = true
       video.playsInline = true
 
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        console.warn("Thumbnail generation timeout for:", file.name)
+        URL.revokeObjectURL(video.src)
+        resolve(null)
+      }, 10000)
+
       video.onloadeddata = () => {
         video.currentTime = 1 // Seek to 1 second for thumbnail
       }
 
       video.onseeked = () => {
+        clearTimeout(timeout)
         const canvas = document.createElement("canvas")
         canvas.width = video.videoWidth
         canvas.height = video.videoHeight
@@ -155,6 +162,8 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
       }
 
       video.onerror = () => {
+        clearTimeout(timeout)
+        console.error("Error loading video for thumbnail:", file.name)
         resolve(null)
         URL.revokeObjectURL(video.src)
       }
@@ -174,12 +183,22 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
       const video = document.createElement("video")
       video.preload = "metadata"
 
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        console.warn("Duration loading timeout for:", file.name)
+        URL.revokeObjectURL(video.src)
+        resolve({ formatted: "00:00", seconds: 0 })
+      }, 10000)
+
       video.onloadedmetadata = () => {
+        clearTimeout(timeout)
         resolve({ formatted: formatDuration(video.duration), seconds: video.duration })
         URL.revokeObjectURL(video.src)
       }
 
       video.onerror = () => {
+        clearTimeout(timeout)
+        console.error("Error loading video metadata:", file.name)
         resolve({ formatted: "00:00", seconds: 0 })
         URL.revokeObjectURL(video.src)
       }
@@ -190,31 +209,55 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 
   const processFiles = useCallback(
     async (files: FileList | File[]) => {
-      const videoFiles = Array.from(files).filter((file) =>
-        file.type.startsWith("video/")
-      )
+      const videoFiles = Array.from(files).filter((file) => {
+        // Accept video files or mp4/mov/webm/avi by extension if MIME type is missing
+        const isVideoType = file.type.startsWith("video/")
+        const hasVideoExt = /\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(file.name)
+        return isVideoType || hasVideoExt
+      })
 
-      const processedFiles: MediaFile[] = await Promise.all(
-        videoFiles.map(async (file) => {
+      if (videoFiles.length === 0) {
+        console.warn("No video files found in selection")
+        return
+      }
+
+      const processedFiles: MediaFile[] = []
+
+      for (const file of videoFiles) {
+        try {
           const [thumbnail, durationData] = await Promise.all([
-            generateThumbnail(file),
-            getVideoDuration(file),
+            generateThumbnail(file).catch(() => null),
+            getVideoDuration(file).catch(() => ({ formatted: "00:00", seconds: 0 })),
           ])
 
-          return {
+          processedFiles.push({
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             file,
             name: file.name,
             duration: durationData.formatted,
             durationSeconds: durationData.seconds,
             thumbnail,
-            type: file.type,
+            type: file.type || "video/mp4", // Default to mp4 if type is missing
             objectUrl: URL.createObjectURL(file),
-          }
-        })
-      )
+          })
+        } catch (err) {
+          console.error("Error processing file:", file.name, err)
+          // Still add the file even if thumbnail/duration fails
+          processedFiles.push({
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file,
+            name: file.name,
+            duration: "00:00",
+            durationSeconds: 0,
+            thumbnail: null,
+            type: file.type || "video/mp4",
+            objectUrl: URL.createObjectURL(file),
+          })
+        }
+      }
 
       if (processedFiles.length > 0) {
+        console.log("Adding", processedFiles.length, "files to media pool")
         onFilesAdded(processedFiles)
       }
     },
@@ -291,9 +334,8 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 
       {/* Drop zone & media grid */}
       <div
-        className={`flex-1 overflow-y-auto p-3 scrollbar-thin transition-colors ${
-          isDragOver ? "bg-primary/10" : ""
-        }`}
+        className={`flex-1 overflow-y-auto p-3 scrollbar-thin transition-colors ${isDragOver ? "bg-primary/10" : ""
+          }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -310,17 +352,15 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
         {mediaFiles.length === 0 ? (
           /* Empty state - drop zone */
           <div
-            className={`flex h-full flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors cursor-pointer ${
-              isDragOver
+            className={`flex h-full flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors cursor-pointer ${isDragOver
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-muted-foreground"
-            }`}
+              }`}
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload
-              className={`h-10 w-10 mb-3 transition-colors ${
-                isDragOver ? "text-primary" : "text-muted-foreground"
-              }`}
+              className={`h-10 w-10 mb-3 transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground"
+                }`}
             />
             <p className="text-sm font-medium text-foreground mb-1">
               Drop videos here
@@ -334,7 +374,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
           </div>
         ) : (
           /* Media grid */
-        <div className="space-y-2">
+          <div className="space-y-2">
             {/* Add more button */}
             <motion.button
               onClick={() => fileInputRef.current?.click()}
@@ -348,115 +388,114 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 
             {/* Media items */}
             <AnimatePresence mode="popLayout">
-            {filteredFiles.map((media, index) => (
-              <motion.div
-                key={media.id}
-                layout
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-                transition={{
-                  duration: 0.2,
-                  delay: index * 0.05,
-                  layout: { duration: 0.2 }
-                }}
-                whileHover={{ scale: media.isUploading ? 1 : 1.02, y: media.isUploading ? 0 : -2 }}
-                className={`group relative aspect-video overflow-hidden rounded border bg-muted ${
-                media.isUploading
-                  ? "border-primary/50 opacity-70"
-                  : "border-border hover:border-primary cursor-grab active:cursor-grabbing"
-              }`}
-                draggable={!media.isUploading}
-                onDragStart={(e) => !media.isUploading && handleMediaDragStart(e as unknown as React.DragEvent<Element>, media)}
-              >
-                {media.thumbnail ? (
-                  <img
-                    src={media.thumbnail}
-                    alt={media.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-              <div className="flex h-full items-center justify-center">
-                <Film className="h-8 w-8 text-muted-foreground" />
-              </div>
-                )}
-
-                {/* Upload progress overlay */}
-                {media.isUploading && (
-                  <motion.div
-                    className="absolute inset-0 flex items-center justify-center bg-black/40"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
-                    <div className="flex flex-col items-center gap-1">
-                      <Loader2 className="h-6 w-6 text-white animate-spin" />
-                      <span className="text-[10px] text-white">Uploading...</span>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Play icon overlay */}
-                {!media.isUploading && (
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <motion.div
-                      className="rounded-full bg-black/60 p-2"
-                      initial={{ scale: 0.8 }}
-                      whileHover={{ scale: 1.1 }}
-                    >
-                      <Play className="h-4 w-4 text-white fill-white" />
-                    </motion.div>
-                  </div>
-                )}
-
-                {/* Cloud status indicator */}
-                <div className="absolute top-1.5 left-1.5">
-                  {media.storageUrl ? (
-                    <motion.div
-                      className="rounded-full bg-emerald-500/80 p-1"
-                      title="Saved to cloud"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                    >
-                      <Cloud className="h-2.5 w-2.5 text-white" />
-                    </motion.div>
-                  ) : !media.isUploading && (
-                    <div className="rounded-full bg-amber-500/80 p-1" title="Not saved">
-                      <CloudOff className="h-2.5 w-2.5 text-white" />
+              {filteredFiles.map((media, index) => (
+                <motion.div
+                  key={media.id}
+                  layout
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
+                  transition={{
+                    duration: 0.2,
+                    delay: index * 0.05,
+                    layout: { duration: 0.2 }
+                  }}
+                  whileHover={{ scale: media.isUploading ? 1 : 1.02, y: media.isUploading ? 0 : -2 }}
+                  className={`group relative aspect-video overflow-hidden rounded border bg-muted ${media.isUploading
+                      ? "border-primary/50 opacity-70"
+                      : "border-border hover:border-primary cursor-grab active:cursor-grabbing"
+                    }`}
+                  draggable={!media.isUploading}
+                  onDragStart={(e) => !media.isUploading && handleMediaDragStart(e as unknown as React.DragEvent<Element>, media)}
+                >
+                  {media.thumbnail ? (
+                    <img
+                      src={media.thumbnail}
+                      alt={media.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <Film className="h-8 w-8 text-muted-foreground" />
                     </div>
                   )}
-                </div>
 
-                {/* Remove button */}
-                <motion.button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRemoveFile(media.id)
-                  }}
-                  className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 cursor-pointer"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <X className="h-3 w-3 text-white" />
-                </motion.button>
+                  {/* Upload progress overlay */}
+                  {media.isUploading && (
+                    <motion.div
+                      className="absolute inset-0 flex items-center justify-center bg-black/40"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <Loader2 className="h-6 w-6 text-white animate-spin" />
+                        <span className="text-[10px] text-white">Uploading...</span>
+                      </div>
+                    </motion.div>
+                  )}
 
-                {/* Info overlay */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                  <div className="text-xs font-medium text-white truncate">
-                    {media.name}
+                  {/* Play icon overlay */}
+                  {!media.isUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <motion.div
+                        className="rounded-full bg-black/60 p-2"
+                        initial={{ scale: 0.8 }}
+                        whileHover={{ scale: 1.1 }}
+                      >
+                        <Play className="h-4 w-4 text-white fill-white" />
+                      </motion.div>
+                    </div>
+                  )}
+
+                  {/* Cloud status indicator */}
+                  <div className="absolute top-1.5 left-1.5">
+                    {media.storageUrl ? (
+                      <motion.div
+                        className="rounded-full bg-emerald-500/80 p-1"
+                        title="Saved to cloud"
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <Cloud className="h-2.5 w-2.5 text-white" />
+                      </motion.div>
+                    ) : !media.isUploading && (
+                      <div className="rounded-full bg-amber-500/80 p-1" title="Not saved">
+                        <CloudOff className="h-2.5 w-2.5 text-white" />
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-white/60">{media.duration}</div>
-                </div>
-              </motion.div>
-            ))}
+
+                  {/* Remove button */}
+                  <motion.button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRemoveFile(media.id)
+                    }}
+                    className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 cursor-pointer"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="h-3 w-3 text-white" />
+                  </motion.button>
+
+                  {/* Info overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                    <div className="text-xs font-medium text-white truncate">
+                      {media.name}
+                    </div>
+                    <div className="text-[10px] text-white/60">{media.duration}</div>
+                  </div>
+                </motion.div>
+              ))}
             </AnimatePresence>
 
             {filteredFiles.length === 0 && searchQuery && (
               <div className="text-center py-8 text-xs text-muted-foreground">
                 No media matching "{searchQuery}"
-            </div>
+              </div>
             )}
-        </div>
+          </div>
         )}
       </div>
     </div>

@@ -69,25 +69,25 @@ interface EditorContextType {
   mediaFiles: MediaFile[]
   addMediaFiles: (files: MediaFile[]) => void
   removeMediaFile: (id: string) => void
-  
+
   // Timeline
   timelineClips: TimelineClip[]
   addClipToTimeline: (clip: TimelineClip) => void
   updateClip: (id: string, updates: Partial<TimelineClip>) => void
   removeClip: (id: string) => void
   splitClip: (clipId: string, splitTime: number) => void // Split a clip at the given timeline time (in seconds)
-  
+
   // Undo/Redo
   undo: () => void
   redo: () => void
   canUndo: boolean
   canRedo: boolean
-  
+
   // Copy/Paste
   copyClip: (clipId: string) => void
   pasteClip: () => void
   canPaste: boolean
-  
+
   // Playback
   selectedClipId: string | null
   setSelectedClipId: (id: string | null) => void
@@ -97,10 +97,10 @@ interface EditorContextType {
   setIsPlaying: (playing: boolean) => void
   isScrubbing: boolean
   setIsScrubbing: (scrubbing: boolean) => void
-  
+
   // Get media for a clip
   getMediaForClip: (clipId: string) => MediaFile | undefined
-  
+
   // Currently previewing media (from selection or playhead)
   previewMedia: MediaFile | null
   activeClip: TimelineClip | null // The clip currently at playhead
@@ -110,27 +110,27 @@ interface EditorContextType {
   
   // Timeline end time (for stopping playback)
   timelineEndTime: number
-  
+
   // Sorted video clips for playback
   sortedVideoClips: TimelineClip[]
-  
+
   // Load state from saved data
   loadTimelineData: (data: TimelineData | null) => void
-  
+
   // Save state
   saveProject: () => Promise<void>
   isSaving: boolean
   hasUnsavedChanges: boolean
-  
+
   // Thumbnail
   setProjectThumbnail: (thumbnail: string) => void
-  
+
   // Color picker eyedropper
   isEyedropperActive: boolean
   setIsEyedropperActive: (active: boolean) => void
   onColorSampled?: (r: number, g: number, b: number) => void
   setColorSampledCallback: (callback: ((r: number, g: number, b: number) => void) | undefined) => void
-  
+
   // Captions
   generateCaptions: (mediaId: string, options?: { language?: string; prompt?: string }) => Promise<void>
   updateMediaCaptions: (mediaId: string, captions: Caption[]) => void
@@ -159,15 +159,15 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showCaptions, setShowCaptions] = useState(true)
   const [captionStyle, setCaptionStyle] = useState<"classic" | "tiktok">("tiktok")
-  
+
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  
+
   // Undo/Redo history
   const historyRef = useRef<TimelineClip[][]>([])
   const historyIndexRef = useRef<number>(-1)
   const copiedClipRef = useRef<TimelineClip | null>(null)
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
-  
+
   // Update history state
   const updateHistoryState = useCallback(() => {
     const history = historyRef.current
@@ -177,36 +177,36 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       canRedo: index < history.length - 1
     })
   }, [])
-  
+
   // Save state to history before making changes
   const saveToHistory = useCallback(() => {
     const currentState = [...timelineClips]
     const history = historyRef.current
     const index = historyIndexRef.current
-    
+
     // Remove any future history if we're not at the end
     if (index < history.length - 1) {
       history.splice(index + 1)
     }
-    
+
     // Add new state
     history.push(JSON.parse(JSON.stringify(currentState)))
     historyIndexRef.current = history.length - 1
-    
+
     // Limit history size to 50
     if (history.length > 50) {
       history.shift()
       historyIndexRef.current = history.length - 1
     }
-    
+
     updateHistoryState()
   }, [timelineClips, updateHistoryState])
-  
+
   // Undo
   const undo = useCallback(() => {
     const history = historyRef.current
     const index = historyIndexRef.current
-    
+
     if (index > 0) {
       historyIndexRef.current = index - 1
       const previousState = history[index - 1]
@@ -215,12 +215,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateHistoryState()
     }
   }, [updateHistoryState])
-  
+
   // Redo
   const redo = useCallback(() => {
     const history = historyRef.current
     const index = historyIndexRef.current
-    
+
     if (index < history.length - 1) {
       historyIndexRef.current = index + 1
       const nextState = history[index + 1]
@@ -229,10 +229,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateHistoryState()
     }
   }, [updateHistoryState])
-  
+
   const canUndo = historyState.canUndo
   const canRedo = historyState.canRedo
-  
+
   // Copy clip
   const copyClip = useCallback((clipId: string) => {
     const clip = timelineClips.find(c => c.id === clipId)
@@ -241,62 +241,72 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setCanPasteState(true)
     }
   }, [timelineClips])
-  
+
   // Paste clip
   const pasteClip = useCallback(() => {
     const copied = copiedClipRef.current
     if (!copied) return
-    
+
     saveToHistory()
-    
+
     const newClip: TimelineClip = {
       ...JSON.parse(JSON.stringify(copied)),
       id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       startTime: currentTime * PIXELS_PER_SECOND, // Paste at current playhead position
     }
-    
+
     setTimelineClips(prev => [...prev, newClip])
     setSelectedClipId(newClip.id)
     setHasUnsavedChanges(true)
   }, [currentTime, saveToHistory])
-  
+
   const [canPasteState, setCanPasteState] = useState(false)
-  
+
   // Update canPaste state
   useEffect(() => {
     setCanPasteState(copiedClipRef.current !== null)
   }, [timelineClips]) // Re-check when clips change
-  
+
   const canPaste = canPasteState
 
   const addMediaFiles = useCallback(async (files: MediaFile[]) => {
     // Add files immediately with uploading state
-    const filesWithUploading = files.map(f => ({ ...f, isUploading: true }))
+    const filesWithUploading = files.map(f => ({ ...f, isUploading: !!projectId }))
     setMediaFiles((prev) => [...prev, ...filesWithUploading])
     setHasUnsavedChanges(true)
-    
-    // Upload each file to storage
+
+    // Upload each file to storage if project exists
     if (projectId) {
       for (const file of files) {
         if (file.file) {
-          const { data, error } = await uploadMediaFile(projectId, file.file)
-          if (data && !error) {
-            // Update the media file with storage info
-            setMediaFiles((prev) =>
-              prev.map((m) =>
-                m.id === file.id
-                  ? {
+          try {
+            const { data, error } = await uploadMediaFile(projectId, file.file)
+            if (data && !error) {
+              // Update the media file with storage info
+              setMediaFiles((prev) =>
+                prev.map((m) =>
+                  m.id === file.id
+                    ? {
                       ...m,
                       storagePath: data.path,
                       storageUrl: data.url,
                       isUploading: false,
                     }
-                  : m
+                    : m
+                )
               )
-            )
-          } else {
-            console.error("Failed to upload file:", file.name, error)
-            // Mark as not uploading even on error
+            } else {
+              console.error("Failed to upload file:", file.name, error)
+              // Mark as not uploading even on error
+              setMediaFiles((prev) =>
+                prev.map((m) =>
+                  m.id === file.id ? { ...m, isUploading: false } : m
+                )
+              )
+            }
+          } catch (err) {
+            console.error("Error uploading file:", file.name, err)
+            // Mark as not uploading on exception
             setMediaFiles((prev) =>
               prev.map((m) =>
                 m.id === file.id ? { ...m, isUploading: false } : m
@@ -309,9 +319,27 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, [projectId])
 
   const removeMediaFile = useCallback((id: string) => {
+    // Save to history before making changes (for undo/redo)
+    saveToHistory()
+
+    // Remove the media file
     setMediaFiles((prev) => prev.filter((f) => f.id !== id))
+
+    // Find and remove all timeline clips that reference this media
+    setTimelineClips((prev) => {
+      const clipsToRemove = prev.filter((clip) => clip.mediaId === id)
+
+      // If the selected clip is being removed, clear the selection
+      if (clipsToRemove.some((clip) => clip.id === selectedClipId)) {
+        setSelectedClipId(null)
+      }
+
+      // Return clips that don't reference the deleted media
+      return prev.filter((clip) => clip.mediaId !== id)
+    })
+
     setHasUnsavedChanges(true)
-  }, [])
+  }, [saveToHistory, selectedClipId])
 
   const addClipToTimeline = useCallback((clip: TimelineClip) => {
     saveToHistory()
@@ -394,7 +422,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Load timeline data from saved project
   const loadTimelineData = useCallback((data: TimelineData | null) => {
     if (!data) return
-    
+
     // Restore clips
     const restoredClips: TimelineClip[] = data.clips.map((clip: TimelineClipData) => ({
       id: clip.id,
@@ -408,7 +436,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       transform: clip.transform ?? DEFAULT_CLIP_TRANSFORM,
       effects: clip.effects ?? DEFAULT_CLIP_EFFECTS,
     }))
-    
+
     // Restore media files from storage URLs
     const restoredMedia: MediaFile[] = data.media.map((m: MediaFileData) => ({
       id: m.id,
@@ -424,7 +452,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       captions: m.captions, // Restore generated captions
       captionsGenerating: false,
     }))
-    
+
     setMediaFiles(restoredMedia)
     setTimelineClips(restoredClips)
     setHasUnsavedChanges(false)
@@ -433,9 +461,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Save project to Supabase
   const saveProject = useCallback(async () => {
     if (!projectId) return
-    
+
     setIsSaving(true)
-    
+
     // Prepare timeline data (only save media that has been uploaded)
     const timelineData: TimelineData = {
       clips: timelineClips.map((clip): TimelineClipData => ({
@@ -464,24 +492,24 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           captions: m.captions, // Include generated captions
         })),
     }
-    
+
     // Calculate duration
     const totalDuration = timelineClips.reduce((max, clip) => {
       const clipEnd = (clip.startTime + clip.duration) / PIXELS_PER_SECOND
       return Math.max(max, clipEnd)
     }, 0)
-    
+
     const hours = Math.floor(totalDuration / 3600)
     const minutes = Math.floor((totalDuration % 3600) / 60)
     const seconds = Math.floor(totalDuration % 60)
     const durationStr = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
-    
+
     await updateProject(projectId, {
       timeline_data: timelineData,
       duration: durationStr,
       thumbnail: projectThumbnail,
     })
-    
+
     setHasUnsavedChanges(false)
     setIsSaving(false)
   }, [projectId, timelineClips, mediaFiles, projectThumbnail])
@@ -489,15 +517,15 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Auto-save with debounce
   useEffect(() => {
     if (!projectId || !hasUnsavedChanges) return
-    
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
-    
+
     saveTimeoutRef.current = setTimeout(() => {
       saveProject()
     }, 2000) // Auto-save after 2 seconds of inactivity
-    
+
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
@@ -523,7 +551,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // But don't clamp while scrubbing - allow user to drag past the end
   useEffect(() => {
     if (isScrubbing) return // Don't clamp while actively scrubbing
-    
+
     if (timelineEndTime > 0 && currentTime > timelineEndTime) {
       setCurrentTime(timelineEndTime)
     } else if (timelineEndTime === 0 && currentTime > 0) {
@@ -569,12 +597,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     if (selectedClipId && !isPlaying) {
       return getMediaForClip(selectedClipId) ?? null
     }
-    
+
     // Otherwise use active clip under playhead
     if (activeClip) {
       return mediaFiles.find((m) => m.id === activeClip.mediaId) ?? null
     }
-    
+
     return null
   })()
 
@@ -610,7 +638,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await response.json()
-      
+
       // Update media with captions
       setMediaFiles((prev) =>
         prev.map((m) =>

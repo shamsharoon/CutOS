@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { useCallback, useEffect, useRef, useState, useMemo } from "react"
+import { toast } from "sonner"
 import {
   useEditor,
   PIXELS_PER_SECOND,
@@ -12,7 +13,6 @@ import {
 } from "@/components/editor-context"
 import type { TimelineState } from "./system-prompt"
 import type { AgentAction } from "./tools"
-import { getChatSession, saveChatMessages, clearChatSession, type ChatMessage } from "@/lib/chat"
 
 // Tool call display info
 export type ToolCallInfo = {
@@ -38,7 +38,6 @@ function getMessageText(message: UIMessage): string {
     .join("")
 }
 
-// Language code to name mapping for dubbing
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English", es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
   zh: "Chinese", ja: "Japanese", ar: "Arabic", ru: "Russian", hi: "Hindi",
@@ -75,14 +74,14 @@ function getToolDescription(toolName: string, input: Record<string, unknown>): s
     }
     case "applyEffect":
       return `Apply ${input.effect} effect`
-    case "applyChromakey":
-      return input.enabled ? `Enable chromakey (${input.keyColor || "green"})` : "Disable chromakey"
     case "addMediaToTimeline":
       return `Add media to track ${input.trackId}${input.startTimeSeconds !== undefined ? ` at ${input.startTimeSeconds}s` : ""}`
     case "dubClip": {
       const langName = LANGUAGE_NAMES[input.targetLanguage as string] || input.targetLanguage
       return `Dubbing to ${langName}...`
     }
+    case "createMorphTransition":
+      return `Create ${input.durationSeconds}s morph transition`
     default:
       return toolName
   }
@@ -96,13 +95,6 @@ export function useVideoAgent() {
   const [input, setInput] = useState("")
   // Force re-render when tool calls complete
   const [, forceUpdate] = useState(0)
-
-  // Chat persistence state
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
-  const [savedMessages, setSavedMessages] = useState<ChatMessage[]>([])
-  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([])
-  const hasLoadedRef = useRef(false)
-  const lastSavedRef = useRef<string>("")
 
   // Build timeline state for the agent
   const getTimelineContext = useCallback((): TimelineState => {
@@ -258,7 +250,7 @@ export function useVideoAgent() {
               smoothness: 0.1,
               spill: 0.3,
             }
-            
+
             editor.updateClip(action.payload.clipId, {
               effects: {
                 ...targetClip.effects,
@@ -307,6 +299,49 @@ export function useVideoAgent() {
           }
 
           editor.addClipToTimeline(newClip)
+          break
+        }
+
+        case "CREATE_MORPH_TRANSITION": {
+          const fromClip = editor.timelineClips.find((c) => c.id === action.payload.fromClipId)
+          const toClip = editor.timelineClips.find((c) => c.id === action.payload.toClipId)
+
+          if (!fromClip || !toClip) {
+            console.error("Clips not found for morph transition")
+            toast.error("Clips not found for morph transition")
+            break
+          }
+
+          // Show loading toast with promise
+          const morphPromise = import("@/lib/morph-transition")
+            .then(({ createMorphTransition }) => {
+              return createMorphTransition(
+                fromClip,
+                toClip,
+                editor.mediaFiles,
+                editor.projectId || "",
+                action.payload.durationSeconds
+              )
+            })
+            .then((result) => {
+              // Add the morph video to media files
+              editor.addMediaFiles([result.media])
+              // Add the morph clip to timeline
+              editor.addClipToTimeline(result.clip)
+              // Reposition the toClip to come right after the morph transition
+              editor.updateClip(result.toClipUpdate.clipId, {
+                startTime: result.toClipUpdate.newStartTime,
+              })
+              return result
+            })
+
+          toast.promise(morphPromise, {
+            loading: "Generating AI morph transition...",
+            success: "Morph transition added to timeline!",
+            error: (err) => `Failed to create morph transition: ${err.message || "Unknown error"}`,
+            duration: 5000,
+          })
+
           break
         }
 
@@ -360,9 +395,9 @@ export function useVideoAgent() {
           const errorMsg = errorData.error || "Dubbing request failed"
           // Check for common errors and provide helpful messages
           if (errorMsg.includes("permission") || errorMsg.includes("dubbing_write")) {
-            return { 
-              success: false, 
-              error: "API key lacks dubbing permission. Please update your ElevenLabs API key with dubbing_write permission (requires Creator plan or higher)." 
+            return {
+              success: false,
+              error: "API key lacks dubbing permission. Please update your ElevenLabs API key with dubbing_write permission (requires Creator plan or higher)."
             }
           }
           return { success: false, error: errorMsg }
@@ -376,7 +411,7 @@ export function useVideoAgent() {
         // Create a new media file for the dubbed content
         const langName = LANGUAGE_NAMES[targetLanguage] || targetLanguage
         const dubbedMediaId = `dubbed-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        
+
         const dubbedMedia = {
           id: dubbedMediaId,
           name: `${media.name} (${langName})`,
@@ -421,7 +456,6 @@ export function useVideoAgent() {
   }, [handleAction])
 
   // Create transport that includes timeline state in body
-  // DefaultChatTransport automatically includes all messages in the conversation
   const transport = useMemo(() => {
     return new DefaultChatTransport({
       api: "/api/agent",
@@ -431,7 +465,7 @@ export function useVideoAgent() {
     })
   }, [getTimelineContext])
 
-  const { messages, sendMessage, status, error, setMessages } = useChat({
+  const { messages, sendMessage, setMessages, status, error } = useChat({
     transport,
     onToolCall: ({ toolCall }) => {
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
@@ -559,7 +593,7 @@ export function useVideoAgent() {
           case "dubClip":
             // Handle dubbing as a special async case
             processedToolCallsRef.current.add(tc.toolCallId)
-            
+
             // Start async dubbing operation
             handleDubClip(
               tc.input.clipId as string,
@@ -582,9 +616,19 @@ export function useVideoAgent() {
               toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
               forceUpdate((n) => n + 1)
             })
-            
+
             // Return early - don't process as regular action
             return
+          case "createMorphTransition":
+            action = {
+              action: "CREATE_MORPH_TRANSITION",
+              payload: {
+                fromClipId: tc.input.fromClipId as string,
+                toClipId: tc.input.toClipId as string,
+                durationSeconds: (tc.input.durationSeconds as number) || 5,
+              },
+            }
+            break
         }
 
         if (action) {
@@ -713,140 +757,31 @@ export function useVideoAgent() {
       }
     }
 
-    // Handle empty assistant messages
-    let displayContent = content
-    if (msg.role === "assistant" && (!content || !content.trim()) && toolCalls.length === 0) {
-      displayContent = "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?"
-    }
-
     return {
       role: msg.role as "user" | "assistant",
-      content: displayContent,
+      content,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     }
   })
 
-  // Load chat history on mount and restore to useChat
-  useEffect(() => {
-    if (!editor.projectId || hasLoadedRef.current) return
-
-    const loadHistory = async () => {
-      setIsLoadingHistory(true)
-      try {
-        const { data, error } = await getChatSession(editor.projectId!)
-        if (error) {
-          console.error("Failed to load chat history:", error)
-        } else if (data?.messages && data.messages.length > 0) {
-          setSavedMessages(data.messages)
-          
-          // Convert ChatMessage[] to UIMessage[] format for useChat
-          const uiMessages: UIMessage[] = data.messages.map((msg, index) => ({
-            id: `msg-${index}-${Date.now()}`,
-            role: msg.role,
-            parts: [
-              {
-                type: "text",
-                text: msg.content,
-              },
-            ],
-          }))
-          setInitialMessages(uiMessages)
-          
-          // Restore messages to useChat hook
-          if (setMessages && uiMessages.length > 0) {
-            setMessages(uiMessages)
-          }
-        }
-      } catch (err) {
-        console.error("Error loading chat history:", err)
-      } finally {
-        setIsLoadingHistory(false)
-        hasLoadedRef.current = true
-      }
-    }
-
-    loadHistory()
-  }, [editor.projectId, setMessages])
-
-  // Save chat messages when they change (debounced)
-  useEffect(() => {
-    if (!editor.projectId || !hasLoadedRef.current) return
-    if (displayMessages.length === 0) return
-    if (status === "streaming" || status === "submitted") return // Don't save while streaming
-
-    // Create a serializable version for comparison and storage
-    const messagesToSave: ChatMessage[] = displayMessages
-      .filter((m) => m.content.trim() || (m.toolCalls && m.toolCalls.length > 0))
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-        toolCalls: m.toolCalls,
-      }))
-
-    const serialized = JSON.stringify(messagesToSave)
-    if (serialized === lastSavedRef.current) return // No changes
-
-    const saveTimeout = setTimeout(async () => {
-      try {
-        const { error } = await saveChatMessages(editor.projectId!, messagesToSave)
-        if (error) {
-          console.error("Failed to save chat messages:", error)
-        } else {
-          lastSavedRef.current = serialized
-        }
-      } catch (err) {
-        console.error("Error saving chat messages:", err)
-      }
-    }, 1000) // Debounce 1 second
-
-    return () => clearTimeout(saveTimeout)
-  }, [displayMessages, editor.projectId, status])
-
-  // Clear chat and start new
-  const clearChat = useCallback(async () => {
-    if (!editor.projectId) return
-
-    try {
-      // Clear chat session from database
-      const { error } = await clearChatSession(editor.projectId)
-      if (error) {
-        console.error("Failed to clear chat:", error)
-        return
-      }
-
-      // Reset useChat messages to empty array
-      if (setMessages) {
-        setMessages([])
-      }
-
-      // Reset local state
-      setSavedMessages([])
-      setInitialMessages([])
-      setInput("")
-      processedToolCallsRef.current.clear()
-      toolCallInfoRef.current.clear()
-      lastSavedRef.current = ""
-      hasLoadedRef.current = false // Allow reloading history if needed
-    } catch (err) {
-      console.error("Error clearing chat:", err)
-    }
-  }, [editor.projectId, setMessages])
-
-  // Use messages from useChat (which now includes initialMessages)
-  // The displayMessages are already derived from useChat's messages, so we can use them directly
-  const allMessages = displayMessages
+  // Clear chat history
+  const clearChat = useCallback(() => {
+    setMessages([])
+    processedToolCallsRef.current.clear()
+    toolCallInfoRef.current.clear()
+  }, [setMessages])
 
   return {
-    messages: allMessages,
+    messages: displayMessages,
     status, // expose status for more granular UI control
     input,
     setInput,
     handleInputChange,
     handleSubmit,
     isLoading,
-    isLoadingHistory,
+    isLoadingHistory: false, // No persistence yet, so never loading history
     sendQuickAction,
-    sendMessage, // Expose sendMessage for direct message sending
+    sendMessage,
     clearChat,
     error,
   }
