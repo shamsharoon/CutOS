@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Film, FolderOpen, Search, Upload, X, Play, Loader2, Cloud, CloudOff, Wand2, Eye, EyeOff, Captions } from "lucide-react"
+import { Film, FolderOpen, Search, Upload, X, Play, Loader2, Cloud, CloudOff, Wand2, Eye, EyeOff, Captions, AlertCircle, Clock, Zap, GripVertical } from "lucide-react"
 import { useEditor, MediaFile, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 import type { EffectPreset, ClipEffects, ClipTransform } from "@/lib/projects"
 import type { TimelineClip } from "./editor-context"
@@ -12,7 +12,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 
 export function MediaPanel() {
   const [activeTab, setActiveTab] = useState("media")
-  const { mediaFiles, addMediaFiles, removeMediaFile } = useEditor()
+  const { mediaFiles, addMediaFiles, removeMediaFile, projectId, reindexMedia } = useEditor()
 
   const tabs = [
     { id: "media", label: "Media", icon: FolderOpen },
@@ -96,6 +96,8 @@ export function MediaPanel() {
                 mediaFiles={mediaFiles}
                 onFilesAdded={addMediaFiles}
                 onRemoveFile={removeMediaFile}
+                projectId={projectId}
+                onReindexMedia={reindexMedia}
               />
             </motion.div>
           )}
@@ -117,16 +119,142 @@ export function MediaPanel() {
   )
 }
 
+// TwelveLabs search result type
+interface NLPSearchResult {
+  videoId: string // TwelveLabs video ID
+  mediaId?: string // Our local media ID (mapped)
+  start: number
+  end: number
+  rank: number
+  media?: MediaFile // Reference to the matched media
+}
+
 interface MediaTabProps {
   mediaFiles: MediaFile[]
   onFilesAdded: (files: MediaFile[]) => void
   onRemoveFile: (id: string) => void
+  projectId: string | null
+  onReindexMedia: (mediaId: string) => Promise<void>
 }
 
-function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
+function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindexMedia }: MediaTabProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // NLP Search state
+  const [nlpResults, setNlpResults] = useState<NLPSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showNlpResults, setShowNlpResults] = useState(false)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Preview state for NLP results
+  const [previewResult, setPreviewResult] = useState<NLPSearchResult | null>(null)
+  const previewVideoRef = useRef<HTMLVideoElement>(null)
+  
+  // Format time for display
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, "0")}`
+  }
+  
+  // Perform NLP search
+  const performNlpSearch = useCallback(async (query: string) => {
+    if (!projectId || !query.trim()) {
+      setNlpResults([])
+      setShowNlpResults(false)
+      return
+    }
+    
+    // Check if any media is indexed
+    const indexedMedia = mediaFiles.filter(m => m.twelveLabsStatus === "ready")
+    if (indexedMedia.length === 0) {
+      setNlpResults([])
+      setShowNlpResults(false)
+      return
+    }
+    
+    setIsSearching(true)
+    
+    try {
+      const response = await fetch("/api/twelvelabs/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          query: query.trim(),
+          videoIds: indexedMedia.map(m => m.twelveLabsVideoId).filter(Boolean),
+        }),
+      })
+      
+      if (!response.ok) {
+        console.error("NLP search failed")
+        setNlpResults([])
+        setShowNlpResults(false)
+        return
+      }
+      
+      const data = await response.json()
+      
+      // Map results to include local media reference
+      const mappedResults: NLPSearchResult[] = data.results.map((r: { videoId: string; start: number; end: number; rank: number }) => {
+        const media = mediaFiles.find(m => m.twelveLabsVideoId === r.videoId)
+        return {
+          ...r,
+          mediaId: media?.id,
+          media,
+        }
+      }).filter((r: NLPSearchResult) => r.media) // Only show results we can display
+      
+      setNlpResults(mappedResults)
+      setShowNlpResults(mappedResults.length > 0)
+    } catch (error) {
+      console.error("NLP search error:", error)
+      setNlpResults([])
+      setShowNlpResults(false)
+    } finally {
+      setIsSearching(false)
+    }
+  }, [projectId, mediaFiles])
+  
+  // Debounced search effect
+  useEffect(() => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+    
+    // If query is empty or too short, clear results
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      setNlpResults([])
+      setShowNlpResults(false)
+      return
+    }
+    
+    // First check name matches
+    const nameMatches = mediaFiles.filter(file =>
+      file.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    
+    // If we have name matches, don't do NLP search
+    if (nameMatches.length > 0) {
+      setNlpResults([])
+      setShowNlpResults(false)
+      return
+    }
+    
+    // Debounce NLP search (wait 500ms after typing stops)
+    searchTimeoutRef.current = setTimeout(() => {
+      performNlpSearch(searchQuery)
+    }, 500)
+    
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [searchQuery, mediaFiles, performNlpSearch])
 
   const generateThumbnail = useCallback((file: File): Promise<string | null> => {
     return new Promise((resolve) => {
@@ -269,6 +397,53 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
     e.dataTransfer.effectAllowed = "copy"
   }, [])
 
+  // Handle drag start for NLP search results (with specific time range)
+  const handleNlpResultDragStart = useCallback((e: React.DragEvent, result: NLPSearchResult) => {
+    if (!result.media) return
+    
+    e.dataTransfer.setData("application/x-media-id", result.media.id)
+    e.dataTransfer.setData("application/x-clip-start", result.start.toString())
+    e.dataTransfer.setData("application/x-clip-end", result.end.toString())
+    e.dataTransfer.effectAllowed = "copy"
+  }, [])
+
+  // Handle preview of NLP search result
+  const handlePreviewResult = useCallback((result: NLPSearchResult) => {
+    setPreviewResult(result)
+  }, [])
+
+  // Handle video time update during preview - pause at end time
+  const handlePreviewTimeUpdate = useCallback(() => {
+    if (!previewVideoRef.current || !previewResult) return
+    
+    if (previewVideoRef.current.currentTime >= previewResult.end) {
+      previewVideoRef.current.pause()
+      previewVideoRef.current.currentTime = previewResult.start
+    }
+  }, [previewResult])
+
+  // Set video to start time when preview opens
+  useEffect(() => {
+    if (previewResult && previewVideoRef.current) {
+      previewVideoRef.current.currentTime = previewResult.start
+      previewVideoRef.current.play().catch(() => {
+        // Autoplay may be blocked, user can click to play
+      })
+    }
+  }, [previewResult])
+
+  // Close preview on escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && previewResult) {
+        setPreviewResult(null)
+      }
+    }
+    
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [previewResult])
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -311,25 +486,41 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
+  // Check if NLP search is available (any indexed media)
+  const hasIndexedMedia = mediaFiles.some(m => m.twelveLabsStatus === "ready")
+  const indexingCount = mediaFiles.filter(m => m.twelveLabsStatus === "indexing" || m.twelveLabsStatus === "pending").length
+
   return (
     <div className="flex h-full flex-col">
-      {/* Search */}
-      {/* 
-        Search Media - TODO: Implement NLP search via 12 Labs Video RAG
-        Priority: clip name match > NLP search (if no name match found)
-        Should stream response for NLP results
-      */}
+      {/* Search with NLP support */}
       <div className="border-b border-border p-3">
         <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          {isSearching ? (
+            <Loader2 className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-primary animate-spin" />
+          ) : (
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          )}
           <input
             type="text"
-            placeholder="Search media..."
+            placeholder={hasIndexedMedia ? "Search by name or describe what you're looking for..." : "Search media..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
           />
         </div>
+        {/* NLP Search hint */}
+        {hasIndexedMedia && searchQuery.length > 0 && filteredFiles.length === 0 && !isSearching && !showNlpResults && (
+          <div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Zap className="h-3 w-3" />
+            <span>Try natural language: "person walking", "sunset scene", etc.</span>
+          </div>
+        )}
+        {indexingCount > 0 && (
+          <div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Indexing {indexingCount} video{indexingCount > 1 ? 's' : ''} for AI search...</span>
+          </div>
+        )}
       </div>
 
       {/* Drop zone & media grid */}
@@ -401,10 +592,11 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                     layout: { duration: 0.2 }
                   }}
                   whileHover={{ scale: media.isUploading ? 1 : 1.02, y: media.isUploading ? 0 : -2 }}
-                  className={`group relative aspect-video overflow-hidden rounded border bg-muted ${media.isUploading
+                  className={`group relative aspect-video overflow-hidden rounded border bg-muted ${
+                    media.isUploading
                       ? "border-primary/50 opacity-70"
                       : "border-border hover:border-primary cursor-grab active:cursor-grabbing"
-                    }`}
+                  }`}
                   draggable={!media.isUploading}
                   onDragStart={(e) => !media.isUploading && handleMediaDragStart(e as unknown as React.DragEvent<Element>, media)}
                 >
@@ -447,8 +639,9 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                     </div>
                   )}
 
-                  {/* Cloud status indicator */}
-                  <div className="absolute top-1.5 left-1.5">
+                  {/* Status indicators */}
+                  <div className="absolute top-1.5 left-1.5 flex gap-1">
+                    {/* Cloud status */}
                     {media.storageUrl ? (
                       <motion.div
                         className="rounded-full bg-emerald-500/80 p-1"
@@ -464,23 +657,76 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                         <CloudOff className="h-2.5 w-2.5 text-white" />
                       </div>
                     )}
+
+                    {/* TwelveLabs indexing status */}
+                    {media.twelveLabsStatus === "indexing" || media.twelveLabsStatus === "pending" ? (
+                      <motion.div
+                        className="rounded-full bg-cyan-500/80 p-1"
+                        title="Indexing..."
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <Loader2 className="h-2.5 w-2.5 text-white animate-spin" />
+                      </motion.div>
+                    ) : media.twelveLabsStatus === "ready" ? (
+                      <motion.div
+                        className="rounded-full bg-cyan-500/80 p-1"
+                        title="Searchable"
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <Search className="h-2.5 w-2.5 text-white" />
+                      </motion.div>
+                    ) : media.twelveLabsStatus === "failed" ? (
+                      <motion.div
+                        className="rounded-full bg-red-500/80 p-1"
+                        title={media.twelveLabsError ? `Failed: ${media.twelveLabsError}` : "Indexing failed"}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                      >
+                        <AlertCircle className="h-2.5 w-2.5 text-white" />
+                      </motion.div>
+                    ) : null}
                   </div>
 
-                  {/* Remove button */}
-                  <motion.button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onRemoveFile(media.id)
-                    }}
-                    className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 cursor-pointer"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <X className="h-3 w-3 text-white" />
-                  </motion.button>
+                  {/* Action buttons */}
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Index button - show if not indexed, failed, or no status (and has storageUrl) */}
+                    {media.storageUrl && (!media.twelveLabsStatus || media.twelveLabsStatus === "failed") && (
+                      <motion.button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onReindexMedia(media.id)
+                        }}
+                        className="rounded-full bg-cyan-500/80 p-1 hover:bg-cyan-500 cursor-pointer"
+                        title={media.twelveLabsStatus === "failed" ? "Retry indexing" : "Make searchable"}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                      >
+                        <Search className="h-3 w-3 text-white" />
+                      </motion.button>
+                    )}
+
+                    {/* Remove button */}
+                    <motion.button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRemoveFile(media.id)
+                      }}
+                      className="rounded-full bg-black/60 p-1 hover:bg-black/80 cursor-pointer"
+                      title="Remove"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                    >
+                      <X className="h-3 w-3 text-white" />
+                    </motion.button>
+                  </div>
 
                   {/* Info overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                  <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent p-2">
                     <div className="text-xs font-medium text-white truncate">
                       {media.name}
                     </div>
@@ -490,14 +736,164 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
               ))}
             </AnimatePresence>
 
-            {filteredFiles.length === 0 && searchQuery && (
+            {filteredFiles.length === 0 && searchQuery && !showNlpResults && !isSearching && (
               <div className="text-center py-8 text-xs text-muted-foreground">
                 No media matching "{searchQuery}"
+                {hasIndexedMedia && (
+                  <div className="mt-2 text-[10px]">
+                    Try using natural language to search video content
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* NLP Search Results */}
+            {showNlpResults && nlpResults.length > 0 && (
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                  <Zap className="h-3 w-3 text-primary" />
+                  <span>AI Found {nlpResults.length} matching moment{nlpResults.length > 1 ? 's' : ''}</span>
+                </div>
+                <AnimatePresence mode="popLayout">
+                  {nlpResults.map((result, index) => (
+                    <motion.div
+                      key={`nlp-${result.videoId}-${result.start}-${index}`}
+                      layout
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.2, delay: index * 0.05 }}
+                      className="group relative overflow-hidden rounded border border-primary/30 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                      draggable={!!result.media}
+                      onDragStart={(e) => handleNlpResultDragStart(e as unknown as React.DragEvent<Element>, result)}
+                      onClick={() => handlePreviewResult(result)}
+                    >
+                      <div className="flex gap-2 p-2">
+                        {/* Drag handle */}
+                        <div 
+                          className="flex items-center text-muted-foreground/50 group-hover:text-primary/70 transition-colors cursor-grab active:cursor-grabbing"
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
+                          <GripVertical className="h-4 w-4" />
+                        </div>
+                        
+                        {/* Thumbnail with play overlay */}
+                        <div className="relative w-16 h-10 rounded overflow-hidden bg-muted flex-shrink-0">
+                          {result.media?.thumbnail ? (
+                            <img
+                              src={result.media.thumbnail}
+                              alt={result.media.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center">
+                              <Film className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                            <Play className="h-3 w-3 text-white fill-white" />
+                          </div>
+                        </div>
+                        
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[11px] font-medium text-foreground truncate">
+                            {result.media?.name}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex items-center gap-1 text-[10px] text-primary">
+                              <Clock className="h-3 w-3" />
+                              <span>{formatTime(result.start)} - {formatTime(result.end)}</span>
+                            </div>
+                            <div className="text-[9px] text-muted-foreground">
+                              Rank #{result.rank}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Click to preview hint */}
+                        <div className="flex items-center text-[9px] text-muted-foreground/60 group-hover:text-primary/60 transition-colors whitespace-nowrap">
+                          Click to preview
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             )}
           </div>
         )}
       </div>
+      
+      {/* NLP Result Preview Modal */}
+      <AnimatePresence>
+        {previewResult && previewResult.media && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+            onClick={() => setPreviewResult(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-2xl w-full mx-4 bg-background rounded-lg overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-3 border-b">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{previewResult.media.name}</div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    <span>{formatTime(previewResult.start)} - {formatTime(previewResult.end)}</span>
+                    <span className="text-muted-foreground/60">({Math.round(previewResult.end - previewResult.start)}s)</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPreviewResult(null)}
+                  className="p-1.5 rounded-full hover:bg-muted transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              
+              {/* Video */}
+              <div className="relative aspect-video bg-black">
+                <video
+                  ref={previewVideoRef}
+                  src={previewResult.media.objectUrl || previewResult.media.storageUrl}
+                  className="w-full h-full object-contain"
+                  controls
+                  onTimeUpdate={handlePreviewTimeUpdate}
+                  onEnded={() => {
+                    if (previewVideoRef.current && previewResult) {
+                      previewVideoRef.current.currentTime = previewResult.start
+                    }
+                  }}
+                />
+              </div>
+              
+              {/* Footer with drag hint */}
+              <div className="p-3 border-t flex items-center justify-between">
+                <div className="text-xs text-muted-foreground">
+                  Press Esc or click outside to close
+                </div>
+                <div 
+                  className="flex items-center gap-2 text-xs text-primary cursor-grab active:cursor-grabbing px-3 py-1.5 rounded border border-primary/30 hover:bg-primary/10 transition-colors"
+                  draggable
+                  onDragStart={(e) => handleNlpResultDragStart(e as unknown as React.DragEvent<Element>, previewResult)}
+                >
+                  <GripVertical className="h-3 w-3" />
+                  <span>Drag to timeline</span>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
