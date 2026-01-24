@@ -531,10 +531,10 @@ export function VideoPreview() {
   const captionData = getCurrentCaption()
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Video Preview Area */}
-      <div className="flex flex-1 items-center justify-center bg-black/40 p-6">
-        <div className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-lg border border-border bg-black">
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Video Preview Area - uses calc to reserve 100px for transport controls */}
+      <div className="flex items-center justify-center bg-black/40 p-4" style={{ height: 'calc(100% - 100px)' }}>
+        <div className="relative aspect-video h-full max-w-5xl overflow-hidden rounded-lg border border-border bg-black">
           {previewMedia && activeClip ? (
             <>
               {/* Video element - always present, behind canvas when chromakey is enabled */}
@@ -672,7 +672,7 @@ export function VideoPreview() {
       </div>
 
       {/* Transport Controls */}
-      <div className="border-t border-border bg-card px-6 py-4">
+      <div className="shrink-0 border-t border-border bg-card px-6 py-4">
         <div className="mx-auto max-w-5xl">
           {/* Playhead Scrubber */}
           <div className="mb-3 flex items-center gap-3">
