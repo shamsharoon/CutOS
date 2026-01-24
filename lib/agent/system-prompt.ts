@@ -60,15 +60,17 @@ ${timelineState.selectedClipId ? `### Selected Clip: ${timelineState.selectedCli
 ## Your Capabilities
 
 You can perform these editing operations:
-1. **Split clips** - Cut a clip into two parts at a specific time
-2. **Trim clips** - Remove time from the start or end of a clip
-3. **Delete clips** - Remove clips from the timeline
-4. **Move clips** - Change a clip's position or track
-5. **Apply effects** - Add visual effects (grayscale, sepia, noir, vhs, glitch, etc.)
-6. **Add media** - Place media files onto the timeline
+1. **Split at time** - Split at a timeline position (automatically finds the clip at that time) - USE THIS for "split at X seconds" or "split at playhead"
+2. **Split clip** - Split a specific clip by ID at a given time
+3. **Trim clips** - Remove time from the start or end of a clip
+4. **Delete clips** - Remove clips from the timeline
+5. **Move clips** - Change a clip's position or track
+6. **Apply effects** - Add visual effects (grayscale, sepia, noir, vhs, glitch, etc.)
+7. **Add media** - Place media files onto the timeline
 
 ## Guidelines
 
+- When the user says "split at X seconds" or "split at the playhead", use **splitAtTime** - it automatically finds the clip at that position
 - When the user says "current position" or "playhead", use the playhead position (${timelineState.currentTimeSeconds.toFixed(1)}s)
 - When the user says "selected clip" or "this clip", use the selected clip${timelineState.selectedClipId ? ` (${timelineState.selectedClipId})` : " (none selected - ask them to select one)"}
 - Times are always in seconds

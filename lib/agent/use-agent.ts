@@ -60,6 +60,24 @@ export function useVideoAgent() {
           break
         }
 
+        case "SPLIT_AT_TIME": {
+          const { timeSeconds, trackId } = action.payload
+          const timePixels = timeSeconds * PIXELS_PER_SECOND
+
+          // Find clips at this time position
+          const clipsAtTime = editor.timelineClips.filter((c) => {
+            const matchesTrack = !trackId || c.trackId === trackId
+            const withinClip = timePixels >= c.startTime && timePixels < c.startTime + c.duration
+            return matchesTrack && withinClip
+          })
+
+          // Split all clips found at this position
+          for (const clip of clipsAtTime) {
+            editor.splitClip(clip.id, timeSeconds)
+          }
+          break
+        }
+
         case "TRIM_CLIP": {
           const clip = editor.timelineClips.find((c) => c.id === action.payload.clipId)
           if (!clip) break
@@ -212,6 +230,15 @@ export function useVideoAgent() {
               payload: {
                 clipId: tc.input.clipId as string,
                 splitTimeSeconds: tc.input.splitTimeSeconds as number,
+              },
+            }
+            break
+          case "splitAtTime":
+            action = {
+              action: "SPLIT_AT_TIME",
+              payload: {
+                timeSeconds: tc.input.timeSeconds as number,
+                trackId: tc.input.trackId as string | undefined,
               },
             }
             break

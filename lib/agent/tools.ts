@@ -4,6 +4,7 @@ import { z } from "zod"
 // Action types returned by tools - client interprets these
 export type AgentAction =
   | { action: "SPLIT_CLIP"; payload: { clipId: string; splitTimeSeconds: number } }
+  | { action: "SPLIT_AT_TIME"; payload: { timeSeconds: number; trackId?: string } }
   | { action: "TRIM_CLIP"; payload: { clipId: string; trimStartSeconds?: number; trimEndSeconds?: number } }
   | { action: "DELETE_CLIP"; payload: { clipId: string } }
   | { action: "MOVE_CLIP"; payload: { clipId: string; newStartTimeSeconds?: number; newTrackId?: string } }
@@ -16,6 +17,16 @@ const splitClipInput = z.object({
   splitTimeSeconds: z
     .number()
     .describe("The timeline position (in seconds) where to split the clip"),
+})
+
+const splitAtTimeInput = z.object({
+  timeSeconds: z
+    .number()
+    .describe("The timeline position (in seconds) where to split. The clip at this position will be automatically found and split."),
+  trackId: z
+    .string()
+    .optional()
+    .describe("Optional track ID to specify which track (V1, V2, A1, A2). If not provided, splits clips on all tracks at that time."),
 })
 
 const trimClipInput = z.object({
@@ -63,15 +74,28 @@ const addMediaToTimelineInput = z.object({
 })
 
 export const videoEditingTools = {
-  // Tool: Split a clip at a specific time
+  // Tool: Split a clip at a specific time (requires clip ID)
   splitClip: tool({
     description:
-      "Split a clip into two parts at a specific timeline position. Use this when the user wants to cut, split, or divide a clip at a particular time.",
+      "Split a specific clip into two parts at a timeline position. Use this when you know the exact clip ID to split.",
     inputSchema: splitClipInput,
     execute: async (input: z.infer<typeof splitClipInput>) => {
       return {
         action: "SPLIT_CLIP" as const,
         payload: { clipId: input.clipId, splitTimeSeconds: input.splitTimeSeconds },
+      }
+    },
+  }),
+
+  // Tool: Split at a timeline position (automatically finds the clip)
+  splitAtTime: tool({
+    description:
+      "Split at a specific timeline position. Automatically finds which clip exists at that time and splits it. Use this when the user says 'split at X seconds' or 'split at the playhead' without specifying a clip.",
+    inputSchema: splitAtTimeInput,
+    execute: async (input: z.infer<typeof splitAtTimeInput>) => {
+      return {
+        action: "SPLIT_AT_TIME" as const,
+        payload: { timeSeconds: input.timeSeconds, trackId: input.trackId },
       }
     },
   }),
