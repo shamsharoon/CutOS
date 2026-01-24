@@ -446,24 +446,24 @@ function AgentTab() {
           return (
             <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                className={`max-w-[85%] rounded-lg text-xs ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-primary text-primary-foreground px-3 py-2"
                     : "bg-muted text-foreground border border-border"
                 }`}
               >
                 {/* Show tool calls */}
                 {hasToolCalls && (
-                  <div className="flex flex-col items-center space-y-1.5 mb-2">
+                  <div className={`space-y-1 ${hasContent ? "px-3 pt-2 pb-1" : "p-2"}`}>
                     {message.toolCalls!.map((tc) => (
                       <div
                         key={tc.id}
-                        className={`flex items-center justify-center gap-1.5 rounded px-2 py-1 text-[10px] ${
+                        className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] ${
                           tc.status === "success"
-                            ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                            ? "bg-green-500/15 text-green-600 dark:text-green-400"
                             : tc.status === "error"
-                            ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                            : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                            ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                            : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
                         }`}
                       >
                         {tc.status === "running" && (
@@ -483,17 +483,19 @@ function AgentTab() {
 
                 {/* Show text content */}
                 {hasContent && (
-                  <>
+                  <div className={hasToolCalls ? "px-3 pb-2 pt-1" : "px-3 py-2"}>
                     {message.content}
                     {isStreaming && (
                       <span className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70 animate-pulse" />
                     )}
-                  </>
+                  </div>
                 )}
 
                 {/* Show streaming cursor even if no content yet */}
-                {!hasContent && isStreaming && (
-                  <span className="inline-block w-1.5 h-3 bg-foreground/70 animate-pulse" />
+                {!hasContent && !hasToolCalls && isStreaming && (
+                  <div className="px-3 py-2">
+                    <span className="inline-block w-1.5 h-3 bg-foreground/70 animate-pulse" />
+                  </div>
                 )}
               </div>
             </div>
