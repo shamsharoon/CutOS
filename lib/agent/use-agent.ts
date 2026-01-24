@@ -38,6 +38,16 @@ function getMessageText(message: UIMessage): string {
     .join("")
 }
 
+// Language code to name mapping for dubbing
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
+  zh: "Chinese", ja: "Japanese", ar: "Arabic", ru: "Russian", hi: "Hindi",
+  ko: "Korean", id: "Indonesian", it: "Italian", nl: "Dutch", tr: "Turkish",
+  pl: "Polish", sv: "Swedish", fil: "Filipino", ms: "Malay", ro: "Romanian",
+  uk: "Ukrainian", el: "Greek", cs: "Czech", da: "Danish", fi: "Finnish",
+  bg: "Bulgarian", hr: "Croatian", sk: "Slovak", ta: "Tamil"
+}
+
 // Human-readable descriptions for tool calls
 function getToolDescription(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
@@ -69,6 +79,10 @@ function getToolDescription(toolName: string, input: Record<string, unknown>): s
       return input.enabled ? `Enable chromakey (${input.keyColor || "green"})` : "Disable chromakey"
     case "addMediaToTimeline":
       return `Add media to track ${input.trackId}${input.startTimeSeconds !== undefined ? ` at ${input.startTimeSeconds}s` : ""}`
+    case "dubClip": {
+      const langName = LANGUAGE_NAMES[input.targetLanguage as string] || input.targetLanguage
+      return `Dubbing to ${langName}...`
+    }
     default:
       return toolName
   }
@@ -295,6 +309,102 @@ export function useVideoAgent() {
           editor.addClipToTimeline(newClip)
           break
         }
+
+        // DUB_CLIP is handled separately as async operation - see handleDubClip
+        case "DUB_CLIP":
+          // This case is handled in onToolCall with handleDubClip
+          break
+      }
+    },
+    [editor]
+  )
+
+  // Handle async dubbing operation
+  const handleDubClip = useCallback(
+    async (
+      clipId: string,
+      targetLanguage: string,
+      replaceOriginal: boolean | undefined,
+      toolCallId: string
+    ): Promise<{ success: boolean; error?: string }> => {
+      // Find the clip and its media
+      const clip = editor.timelineClips.find((c) => c.id === clipId)
+      if (!clip) {
+        return { success: false, error: "Clip not found" }
+      }
+
+      const media = editor.mediaFiles.find((m) => m.id === clip.mediaId)
+      if (!media) {
+        return { success: false, error: "Media not found for clip" }
+      }
+
+      if (!media.storageUrl) {
+        return { success: false, error: "Media must be uploaded to cloud first. Please wait for upload to complete." }
+      }
+
+      try {
+        // Call the dub API
+        const response = await fetch("/api/dub", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mediaUrl: media.storageUrl,
+            targetLang: targetLanguage,
+            projectId: editor.projectId,
+            mediaName: `${media.name} (${LANGUAGE_NAMES[targetLanguage] || targetLanguage})`,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          const errorMsg = errorData.error || "Dubbing request failed"
+          // Check for common errors and provide helpful messages
+          if (errorMsg.includes("permission") || errorMsg.includes("dubbing_write")) {
+            return { 
+              success: false, 
+              error: "API key lacks dubbing permission. Please update your ElevenLabs API key with dubbing_write permission (requires Creator plan or higher)." 
+            }
+          }
+          return { success: false, error: errorMsg }
+        }
+
+        const result = await response.json()
+        if (!result.success) {
+          return { success: false, error: result.error || "Dubbing failed" }
+        }
+
+        // Create a new media file for the dubbed content
+        const langName = LANGUAGE_NAMES[targetLanguage] || targetLanguage
+        const dubbedMediaId = `dubbed-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        
+        const dubbedMedia = {
+          id: dubbedMediaId,
+          name: `${media.name} (${langName})`,
+          duration: media.duration,
+          durationSeconds: media.durationSeconds,
+          thumbnail: media.thumbnail,
+          type: media.type,
+          objectUrl: result.dubbedMediaUrl,
+          storagePath: result.dubbedMediaPath,
+          storageUrl: result.dubbedMediaUrl,
+          isUploading: false,
+        }
+
+        // Add dubbed media to the pool
+        editor.addMediaFiles([dubbedMedia])
+
+        if (replaceOriginal) {
+          // Update the original clip to use the dubbed media
+          editor.updateClip(clipId, {
+            mediaId: dubbedMediaId,
+            label: dubbedMedia.name,
+          })
+        }
+
+        return { success: true }
+      } catch (error) {
+        console.error("Dubbing error:", error)
+        return { success: false, error: error instanceof Error ? error.message : "Unknown error" }
       }
     },
     [editor]
@@ -446,6 +556,35 @@ export function useVideoAgent() {
               },
             }
             break
+          case "dubClip":
+            // Handle dubbing as a special async case
+            processedToolCallsRef.current.add(tc.toolCallId)
+            
+            // Start async dubbing operation
+            handleDubClip(
+              tc.input.clipId as string,
+              tc.input.targetLanguage as string,
+              tc.input.replaceOriginal as boolean | undefined,
+              tc.toolCallId
+            ).then((result) => {
+              if (result.success) {
+                toolInfo.status = "success"
+                toolInfo.description = `Dubbed to ${LANGUAGE_NAMES[tc.input.targetLanguage as string] || tc.input.targetLanguage}`
+              } else {
+                toolInfo.status = "error"
+                toolInfo.description = result.error || "Dubbing failed"
+              }
+              toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+              forceUpdate((n) => n + 1)
+            }).catch((err) => {
+              toolInfo.status = "error"
+              toolInfo.description = err instanceof Error ? err.message : "Dubbing failed"
+              toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+              forceUpdate((n) => n + 1)
+            })
+            
+            // Return early - don't process as regular action
+            return
         }
 
         if (action) {
