@@ -3,9 +3,10 @@
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Wand2, Eye, EyeOff } from "lucide-react"
+import { Wand2, Eye, EyeOff, Loader2, Captions } from "lucide-react"
 import { useEditor, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
-import type { EffectPreset, ClipEffects, ClipTransform } from "@/lib/projects"
+import type { EffectPreset, ClipEffects, ClipTransform, Caption } from "@/lib/projects"
+import type { TimelineClip, MediaFile } from "./editor-context"
 import { ColorPicker } from "./ui/color-picker"
 
 const EFFECT_PRESETS: { id: EffectPreset; label: string }[] = [
@@ -45,7 +46,17 @@ export function InspectorPanel() {
 }
 
 function EffectsTab() {
-  const { selectedClipId, timelineClips, updateClip } = useEditor()
+  const { 
+    selectedClipId, 
+    timelineClips, 
+    updateClip, 
+    mediaFiles,
+    generateCaptions,
+    showCaptions,
+    setShowCaptions,
+    captionStyle,
+    setCaptionStyle,
+  } = useEditor()
 
   const selectedClip = timelineClips.find(c => c.id === selectedClipId)
   
@@ -414,7 +425,195 @@ function EffectsTab() {
             </div>
           </AccordionContent>
         </AccordionItem>
+
+        {/* Captions Accordion */}
+        <AccordionItem value="captions" className="border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <AccordionTrigger className="flex-1 text-xs font-medium hover:no-underline py-0">
+              <div className="flex items-center gap-1.5">
+                <Captions className="h-3.5 w-3.5" />
+                <span>Captions</span>
+              </div>
+            </AccordionTrigger>
+            <button
+              type="button"
+              onClick={() => setShowCaptions(!showCaptions)}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors ${
+                showCaptions
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
+            >
+              {showCaptions ? (
+                <>
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>Show</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="h-3.5 w-3.5" />
+                  <span>Hide</span>
+                </>
+              )}
+            </button>
+          </div>
+          <AccordionContent className="px-3 pb-3">
+            <CaptionsSection 
+              selectedClip={selectedClip} 
+              mediaFiles={mediaFiles} 
+              generateCaptions={generateCaptions}
+              captionStyle={captionStyle}
+              setCaptionStyle={setCaptionStyle}
+            />
+          </AccordionContent>
+        </AccordionItem>
       </Accordion>
+    </div>
+  )
+}
+
+const LANGUAGES = [
+  { code: "", label: "Auto-detect" },
+  { code: "en", label: "English" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "de", label: "German" },
+  { code: "it", label: "Italian" },
+  { code: "pt", label: "Portuguese" },
+  { code: "nl", label: "Dutch" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "zh", label: "Chinese" },
+  { code: "ar", label: "Arabic" },
+  { code: "hi", label: "Hindi" },
+  { code: "ru", label: "Russian" },
+]
+
+interface CaptionsSectionProps {
+  selectedClip: TimelineClip
+  mediaFiles: MediaFile[]
+  generateCaptions: (mediaId: string, options?: { language?: string; prompt?: string }) => Promise<void>
+  captionStyle: "classic" | "tiktok"
+  setCaptionStyle: (style: "classic" | "tiktok") => void
+}
+
+function CaptionsSection({ selectedClip, mediaFiles, generateCaptions, captionStyle, setCaptionStyle }: CaptionsSectionProps) {
+  const [selectedLanguage, setSelectedLanguage] = useState("")
+  const media = mediaFiles.find((m) => m.id === selectedClip.mediaId)
+  
+  if (!media) {
+    return (
+      <p className="text-xs text-muted-foreground">Media not found</p>
+    )
+  }
+
+  const hasCaptions = media.captions && media.captions.length > 0
+  const isGenerating = media.captionsGenerating ?? false
+  const isVideoType = media.type.startsWith("video")
+
+  if (!isVideoType) {
+    return (
+      <p className="text-xs text-muted-foreground">Captions are only available for video clips with audio</p>
+    )
+  }
+
+  const handleGenerate = async () => {
+    if (!media.storageUrl) {
+      return
+    }
+    await generateCaptions(media.id, {
+      language: selectedLanguage || undefined,
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+      {!media.storageUrl ? (
+        <p className="text-xs text-muted-foreground">Upload media to cloud first to generate captions</p>
+      ) : (
+        <>
+          {/* Language Selector */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Language</label>
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              disabled={isGenerating}
+              className="w-full rounded border border-input bg-background px-2 py-1.5 text-xs text-foreground disabled:opacity-50"
+            >
+              {LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-muted-foreground mt-1">Specifying the language improves accuracy</p>
+          </div>
+
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors ${
+              isGenerating
+                ? "bg-secondary text-muted-foreground cursor-not-allowed"
+                : "bg-primary text-primary-foreground hover:bg-primary/90"
+            }`}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Generating...</span>
+              </>
+            ) : hasCaptions ? (
+              <span>Regenerate Captions</span>
+            ) : (
+              <span>Generate Captions</span>
+            )}
+          </button>
+
+          {hasCaptions && (
+            <div className="space-y-3">
+              {/* Caption Style Selector */}
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Style</label>
+                <div className="flex rounded-md border border-border bg-secondary/30 p-0.5">
+                  <button
+                    onClick={() => setCaptionStyle("classic")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                      captionStyle === "classic"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Classic
+                  </button>
+                  <button
+                    onClick={() => setCaptionStyle("tiktok")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                      captionStyle === "tiktok"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    TikTok
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Words detected</span>
+                <span className="text-foreground font-medium">{media.captions!.length}</span>
+              </div>
+              
+              <div className="max-h-32 overflow-y-auto rounded border border-border bg-secondary/30 p-2">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {media.captions!.map((c) => c.word).join(" ")}
+                </p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
