@@ -100,7 +100,7 @@ export function ProjectsDashboard() {
           <div className="flex items-center gap-3">
             <button 
               onClick={() => router.push("/")}
-              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
             >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
               <Film className="h-5 w-5 text-primary" />

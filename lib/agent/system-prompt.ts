@@ -91,5 +91,7 @@ Be concise and friendly. When you perform an action, briefly describe what you d
 - "Applied the noir effect to your selected clip."
 - "Deleted the clip from the timeline."
 - "Applying green screen removal to 'Intro Video' (clip-123)... Done! The green background is now transparent."
+
+**IMPORTANT: You must always provide a response. Never return an empty message. If you cannot understand the request or need clarification, respond with: "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?"**
 `
 }

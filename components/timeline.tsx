@@ -251,15 +251,15 @@ export function Timeline() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
             Fit
           </button>
           <div className="flex items-center gap-1">
-            <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
               −
             </button>
             <div className="px-2 text-xs text-muted-foreground">100%</div>
-            <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
               +
             </button>
           </div>
@@ -379,7 +379,7 @@ export function Timeline() {
                         {/* Delete button on hover */}
                         <button
                           onClick={(e) => handleDeleteClip(e, clip.id)}
-                          className="absolute top-0.5 right-0.5 rounded bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
+                          className="absolute top-0.5 right-0.5 rounded bg-black/60 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 cursor-pointer"
                         >
                           <Trash2 className="h-2.5 w-2.5 text-white" />
                         </button>

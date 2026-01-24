@@ -470,10 +470,20 @@ export function useVideoAgent() {
 
   // Convert UIMessage[] to simpler format for display
   // Don't use useMemo - we want to recompute on every render to catch streaming updates
-  const displayMessages = messages.map((msg) => ({
-    role: msg.role as "user" | "assistant",
-    content: getMessageText(msg),
-  }))
+  const displayMessages = messages.map((msg) => {
+    const content = getMessageText(msg)
+    // Handle empty assistant messages
+    if (msg.role === "assistant" && (!content || !content.trim())) {
+      return {
+        role: msg.role as "user" | "assistant",
+        content: "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?",
+      }
+    }
+    return {
+      role: msg.role as "user" | "assistant",
+      content,
+    }
+  })
 
   return {
     messages: displayMessages,
@@ -484,6 +494,7 @@ export function useVideoAgent() {
     handleSubmit,
     isLoading,
     sendQuickAction,
+    sendMessage, // Expose sendMessage for direct message sending
     error,
   }
 }

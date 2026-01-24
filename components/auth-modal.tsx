@@ -148,7 +148,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
                     setMode("signup")
                     setError(null)
                   }}
-                  className="text-foreground hover:underline font-medium"
+                  className="text-foreground hover:underline font-medium cursor-pointer"
                 >
                   Sign up
                 </button>
@@ -162,7 +162,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
                     setMode("signin")
                     setError(null)
                   }}
-                  className="text-foreground hover:underline font-medium"
+                  className="text-foreground hover:underline font-medium cursor-pointer"
                 >
                   Sign in
                 </button>

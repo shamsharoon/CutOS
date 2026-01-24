@@ -34,7 +34,7 @@ export function ColorPicker({ value, onChange, disabled }: ColorPickerProps) {
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className="flex items-center gap-2 rounded border border-input bg-background px-2 py-1.5 text-xs hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center gap-2 rounded border border-input bg-background px-2 py-1.5 text-xs hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
       >
         <div
           className="h-5 w-5 rounded border border-border"

@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2 } from "lucide-react"
+import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Mic } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
 import { useVideoAgent } from "@/lib/agent/use-agent"
+
 
 export function MediaPanel() {
   const [activeTab, setActiveTab] = useState("media")
@@ -263,7 +264,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
             {/* Add more button */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+              className="w-full flex items-center justify-center gap-2 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
             >
               <Upload className="h-3.5 w-3.5" />
               Add more videos
@@ -331,7 +332,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
                     e.stopPropagation()
                     onRemoveFile(media.id)
                   }}
-                  className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                  className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 cursor-pointer"
                 >
                   <X className="h-3 w-3 text-white" />
                 </button>
@@ -359,10 +360,14 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile }: MediaTabProps) {
 }
 
 function AgentTab() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction, status } = useVideoAgent()
+  const { messages, input, handleInputChange, handleSubmit, isLoading, sendQuickAction, status, sendMessage } = useVideoAgent()
   const { selectedClipId, currentTime } = useEditor()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const [isRecording, setIsRecording] = useState(false)
+  const [isTranscribing, setIsTranscribing] = useState(false)
 
   // Auto-scroll to bottom when messages change or during streaming
   useEffect(() => {
@@ -373,16 +378,118 @@ function AgentTab() {
     sendQuickAction(action)
   }
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus',
+      })
+
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop())
+
+        // Create audio blob
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+
+        // Send to API for transcription
+        setIsTranscribing(true)
+        try {
+          const formData = new FormData()
+          formData.append('audio', audioBlob, 'recording.webm')
+
+          const response = await fetch('/api/speech-to-text', {
+            method: 'POST',
+            body: formData,
+          })
+
+          if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.error || 'Transcription failed')
+          }
+
+          const { text } = await response.json()
+          if (text && text.trim()) {
+            // Refine the transcription before sending
+            try {
+              const refineResponse = await fetch('/api/refine-transcription', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ transcription: text.trim() }),
+              })
+
+              if (refineResponse.ok) {
+                const { text: refinedText } = await refineResponse.json()
+                if (refinedText && refinedText.trim()) {
+                  // Send the refined text to the chat
+                  await sendMessage({ text: refinedText.trim() })
+                } else {
+                  // Fallback to original if refinement returns empty
+                  await sendMessage({ text: text.trim() })
+                }
+              } else {
+                // If refinement fails, use original transcription
+                await sendMessage({ text: text.trim() })
+              }
+            } catch (refineError) {
+              console.error('Refinement error:', refineError)
+              // If refinement fails, use original transcription
+              await sendMessage({ text: text.trim() })
+            }
+          }
+        } catch (error) {
+          console.error('Transcription error:', error)
+          alert(error instanceof Error ? error.message : 'Failed to transcribe audio')
+        } finally {
+          setIsTranscribing(false)
+        }
+      }
+
+      mediaRecorder.start()
+      mediaRecorderRef.current = mediaRecorder
+      setIsRecording(true)
+    } catch (error) {
+      console.error('Failed to start recording:', error)
+      alert('Failed to access microphone. Please check permissions.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      mediaRecorderRef.current = null
+      setIsRecording(false)
+    }
+  }
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* Quick Actions */}
       <div className="border-b border-border p-3">
         <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Quick Actions</div>
         <div className="flex gap-1.5">
-          <button
+            <button
             onClick={() => handleQuickAction(`Split the selected clip at the current playhead position (${currentTime.toFixed(1)} seconds)`)}
             disabled={!selectedClipId || isLoading}
-            className="flex-1 flex items-center justify-center gap-1 rounded bg-primary/10 px-2 py-1.5 text-[10px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 flex items-center justify-center gap-1 rounded bg-primary/10 px-2 py-1.5 text-[10px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Scissors className="h-3 w-3" />
             Split
@@ -390,7 +497,7 @@ function AgentTab() {
           <button
             onClick={() => handleQuickAction("Delete the selected clip from the timeline")}
             disabled={!selectedClipId || isLoading}
-            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Trash2 className="h-3 w-3" />
             Delete
@@ -398,7 +505,7 @@ function AgentTab() {
           <button
             onClick={() => handleQuickAction("Apply a noir cinematic effect to the selected clip")}
             disabled={!selectedClipId || isLoading}
-            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 flex items-center justify-center gap-1 rounded bg-secondary px-2 py-1.5 text-[10px] font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Wand2 className="h-3 w-3" />
             Effect
@@ -420,7 +527,14 @@ function AgentTab() {
         {messages.map((message, i) => {
           const isLastMessage = i === messages.length - 1
           const isStreaming = isLastMessage && message.role === "assistant" && status === "streaming"
-          const showContent = message.content || isStreaming
+          
+          // Handle empty assistant messages
+          let displayContent = message.content
+          if (message.role === "assistant" && !isStreaming && (!displayContent || !displayContent.trim())) {
+            displayContent = "I'm not sure what you'd like me to do. Could you please rephrase your request or ask another question?"
+          }
+          
+          const showContent = displayContent || isStreaming
 
           return (
             <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -433,7 +547,7 @@ function AgentTab() {
               >
                 {showContent ? (
                   <>
-                    {message.content}
+                    {displayContent}
                     {isStreaming && (
                       <span className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70 animate-pulse" />
                     )}
@@ -465,17 +579,49 @@ function AgentTab() {
             placeholder="Ask AI to edit your video..."
             value={input}
             onChange={handleInputChange}
-            disabled={isLoading}
+            disabled={isLoading || isRecording}
             className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           />
+          {input.trim() ? (
           <button
             type="submit"
-            className="rounded-md bg-primary px-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             disabled={!input.trim() || isLoading}
           >
-            <Send className="h-3.5 w-3.5" />
-          </button>
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleRecording}
+              disabled={isLoading || isTranscribing}
+              className={`rounded-md px-3 text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer ${
+                isRecording 
+                  ? "bg-red-500 hover:bg-red-600 animate-pulse" 
+                  : "bg-primary hover:bg-primary/90"
+              }`}
+              title={isRecording ? "Stop recording" : "Start voice recording"}
+            >
+              {isTranscribing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Mic className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
         </div>
+        {isRecording && (
+          <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            <span>Recording... Click again to stop</span>
+          </div>
+        )}
+        {isTranscribing && (
+          <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Transcribing audio...</span>
+          </div>
+        )}
       </form>
     </div>
   )

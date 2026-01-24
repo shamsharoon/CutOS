@@ -572,21 +572,21 @@ export function VideoPreview() {
           <div className="flex items-center justify-center gap-2">
             <button
               onClick={handleSkipBack}
-              className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+              className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               disabled={!hasClips}
             >
               <SkipBack className="h-4 w-4" />
             </button>
             <button
               onClick={handlePlayPause}
-              className="rounded-md bg-primary p-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="rounded-md bg-primary p-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               disabled={!hasClips}
             >
               {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
             </button>
             <button
               onClick={handleSkipForward}
-              className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+              className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               disabled={!hasClips}
             >
               <SkipForward className="h-4 w-4" />

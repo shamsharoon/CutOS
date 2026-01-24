@@ -139,7 +139,7 @@ function EffectsTab() {
         </span>
         <button 
           onClick={resetAll}
-          className="text-xs text-muted-foreground hover:text-foreground"
+          className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
         >
           Reset All
         </button>
@@ -221,7 +221,7 @@ function EffectsTab() {
                 <button
                   key={preset.id}
                   onClick={() => handlePresetChange(preset.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors cursor-pointer ${
                     effects.preset === preset.id
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -328,7 +328,7 @@ function EffectsTab() {
             <button
               type="button"
               onClick={() => handleChromakeyToggle(!(effects.chromakey?.enabled ?? false))}
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors ${
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer ${
                 effects.chromakey?.enabled
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
