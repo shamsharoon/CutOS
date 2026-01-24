@@ -51,16 +51,16 @@ export function WelcomeScreen() {
           {videoExists && (
                 <Video2Ascii
                   src="/demo.mp4"
-              numColumns={160}
+              numColumns={240}
                   colored={true}
-              brightness={0.8}
-              blend={20}
+              brightness={1.8}
+                  blend={15}
                   enableMouse={false}
                   enableRipple={false}
                   charset="detailed"
                   isPlaying={true}
                   autoPlay={true}
-              className="h-full w-full object-cover opacity-40"
+              className="h-full w-full object-cover opacity-60"
                 />
           )}
           {/* Gradient overlays for readability */}
