@@ -13,6 +13,21 @@ import {
 import type { TimelineState } from "./system-prompt"
 import type { AgentAction } from "./tools"
 
+// Tool call display info
+export type ToolCallInfo = {
+  id: string
+  name: string
+  description: string
+  status: "running" | "success" | "error"
+}
+
+// Display message type
+export type DisplayMessage = {
+  role: "user" | "assistant"
+  content: string
+  toolCalls?: ToolCallInfo[]
+}
+
 // Helper to extract text content from UIMessage parts
 function getMessageText(message: UIMessage): string {
   if (!message.parts) return ""
@@ -22,11 +37,48 @@ function getMessageText(message: UIMessage): string {
     .join("")
 }
 
+// Human-readable descriptions for tool calls
+function getToolDescription(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "splitClip":
+      return `Split clip at ${input.splitTimeSeconds}s`
+    case "splitAtTime":
+      return `Split at ${input.timeSeconds}s${input.trackId ? ` on track ${input.trackId}` : ""}`
+    case "trimClip": {
+      const parts = []
+      if (input.trimStartSeconds) parts.push(`${input.trimStartSeconds}s from start`)
+      if (input.trimEndSeconds) parts.push(`${input.trimEndSeconds}s from end`)
+      return `Trim ${parts.join(" and ")}`
+    }
+    case "deleteClip":
+      return "Delete clip"
+    case "deleteAtTime":
+      return `Delete clip at ${input.timeSeconds}s${input.trackId ? ` on track ${input.trackId}` : ""}`
+    case "deleteAllClips":
+      return input.trackId ? `Clear track ${input.trackId}` : "Clear all clips"
+    case "moveClip": {
+      const parts = []
+      if (input.newStartTimeSeconds !== undefined) parts.push(`to ${input.newStartTimeSeconds}s`)
+      if (input.newTrackId) parts.push(`to track ${input.newTrackId}`)
+      return `Move clip ${parts.join(" ")}`
+    }
+    case "applyEffect":
+      return `Apply ${input.effect} effect`
+    case "addMediaToTimeline":
+      return `Add media to track ${input.trackId}${input.startTimeSeconds !== undefined ? ` at ${input.startTimeSeconds}s` : ""}`
+    default:
+      return toolName
+  }
+}
+
 export function useVideoAgent() {
   const editor = useEditor()
   const pendingActionsRef = useRef<AgentAction[]>([])
   const processedToolCallsRef = useRef<Set<string>>(new Set())
+  const toolCallInfoRef = useRef<Map<string, ToolCallInfo>>(new Map())
   const [input, setInput] = useState("")
+  // Force re-render when tool calls complete
+  const [, forceUpdate] = useState(0)
 
   // Build timeline state for the agent
   const getTimelineContext = useCallback((): TimelineState => {
@@ -234,7 +286,6 @@ export function useVideoAgent() {
   const { messages, sendMessage, status, error } = useChat({
     transport,
     onToolCall: ({ toolCall }) => {
-
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
       // The tool executes server-side and we get the result
       // We can construct the action from the tool name and input
@@ -250,6 +301,15 @@ export function useVideoAgent() {
         if (processedToolCallsRef.current.has(tc.toolCallId)) {
           return
         }
+
+        // Record tool call as running
+        const toolInfo: ToolCallInfo = {
+          id: tc.toolCallId,
+          name: tc.toolName,
+          description: getToolDescription(tc.toolName, tc.input),
+          status: "running",
+        }
+        toolCallInfoRef.current.set(tc.toolCallId, toolInfo)
 
         // Construct the action based on the tool name and input
         let action: AgentAction | null = null
@@ -339,7 +399,18 @@ export function useVideoAgent() {
 
         if (action) {
           processedToolCallsRef.current.add(tc.toolCallId)
-          handleAction(action)
+          try {
+            handleAction(action)
+            // Mark as success
+            toolInfo.status = "success"
+            toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+          } catch (err) {
+            // Mark as error
+            toolInfo.status = "error"
+            toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+          }
+          // Force re-render to show updated status
+          forceUpdate((n) => n + 1)
         }
       }
     },
@@ -430,10 +501,34 @@ export function useVideoAgent() {
 
   // Convert UIMessage[] to simpler format for display
   // Don't use useMemo - we want to recompute on every render to catch streaming updates
-  const displayMessages = messages.map((msg) => ({
-    role: msg.role as "user" | "assistant",
-    content: getMessageText(msg),
-  }))
+  const displayMessages: DisplayMessage[] = messages.map((msg) => {
+    const content = getMessageText(msg)
+
+    // Extract tool calls from message parts
+    const toolCalls: ToolCallInfo[] = []
+    if (msg.role === "assistant" && msg.parts) {
+      for (const part of msg.parts) {
+        const partAny = part as Record<string, unknown>
+        // Check for tool-invocation type parts
+        if (partAny.type === "tool-invocation" || partAny.type?.toString().startsWith("tool-")) {
+          const toolCallId = partAny.toolCallId as string
+          if (toolCallId) {
+            // Get info from our tracked tool calls
+            const info = toolCallInfoRef.current.get(toolCallId)
+            if (info) {
+              toolCalls.push(info)
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      role: msg.role as "user" | "assistant",
+      content,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    }
+  })
 
   return {
     messages: displayMessages,

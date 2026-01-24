@@ -2,9 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2 } from "lucide-react"
+import { Film, Sparkles, FolderOpen, Search, Send, Upload, X, Play, Loader2, Cloud, CloudOff, Scissors, Trash2, Wand2, Check, AlertCircle } from "lucide-react"
 import { useEditor, MediaFile } from "./editor-context"
-import { useVideoAgent } from "@/lib/agent/use-agent"
+import { useVideoAgent, type ToolCallInfo } from "@/lib/agent/use-agent"
 
 export function MediaPanel() {
   const [activeTab, setActiveTab] = useState("media")
@@ -435,7 +435,13 @@ function AgentTab() {
         {messages.map((message, i) => {
           const isLastMessage = i === messages.length - 1
           const isStreaming = isLastMessage && message.role === "assistant" && status === "streaming"
-          const showContent = message.content || isStreaming
+          const hasContent = message.content.trim().length > 0
+          const hasToolCalls = message.toolCalls && message.toolCalls.length > 0
+
+          // Skip empty assistant messages with no tool calls
+          if (message.role === "assistant" && !hasContent && !hasToolCalls && !isStreaming) {
+            return null
+          }
 
           return (
             <div key={i} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -446,14 +452,49 @@ function AgentTab() {
                     : "bg-muted text-foreground border border-border"
                 }`}
               >
-                {showContent ? (
+                {/* Show tool calls */}
+                {hasToolCalls && (
+                  <div className="flex flex-col items-center space-y-1.5 mb-2">
+                    {message.toolCalls!.map((tc) => (
+                      <div
+                        key={tc.id}
+                        className={`flex items-center justify-center gap-1.5 rounded px-2 py-1 text-[10px] ${
+                          tc.status === "success"
+                            ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                            : tc.status === "error"
+                            ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                            : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                        }`}
+                      >
+                        {tc.status === "running" && (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        )}
+                        {tc.status === "success" && (
+                          <Check className="h-3 w-3" />
+                        )}
+                        {tc.status === "error" && (
+                          <AlertCircle className="h-3 w-3" />
+                        )}
+                        <span>{tc.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Show text content */}
+                {hasContent && (
                   <>
                     {message.content}
                     {isStreaming && (
                       <span className="inline-block w-1.5 h-3 ml-0.5 bg-foreground/70 animate-pulse" />
                     )}
                   </>
-                ) : null}
+                )}
+
+                {/* Show streaming cursor even if no content yet */}
+                {!hasContent && isStreaming && (
+                  <span className="inline-block w-1.5 h-3 bg-foreground/70 animate-pulse" />
+                )}
               </div>
             </div>
           )
