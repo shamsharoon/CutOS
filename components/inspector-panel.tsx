@@ -3,11 +3,7 @@
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-<<<<<<< HEAD
-import { Wand2 } from "lucide-react"
-=======
-import { Sparkles, History, Wand2, Eye, EyeOff } from "lucide-react"
->>>>>>> 99b5812 (feat: agentic greenscreen works via chromakey)
+import { Wand2, Eye, EyeOff } from "lucide-react"
 import { useEditor, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
 import type { EffectPreset, ClipEffects, ClipTransform } from "@/lib/projects"
 import { ColorPicker } from "./ui/color-picker"
