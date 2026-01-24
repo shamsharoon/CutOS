@@ -9,7 +9,7 @@ const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "SecondCut",
+  title: "Cutos",
   description: "Professional video editing with AI assistance",
   icons: {
     icon: [

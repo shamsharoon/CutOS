@@ -105,7 +105,7 @@ export function ProjectsDashboard() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
               <Film className="h-5 w-5 text-primary" />
             </div>
-            <h1 className="text-lg font-semibold text-foreground">SecondCut</h1>
+            <h1 className="text-lg font-semibold text-foreground">Cutos</h1>
             </button>
           </div>
 

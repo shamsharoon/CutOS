@@ -58,7 +58,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[420px] p-0 gap-0 bg-background border-border overflow-hidden">
         <DialogTitle className="sr-only">
-          {mode === "signin" ? "Sign in to SecondCut" : "Create a SecondCut account"}
+          {mode === "signin" ? "Sign in to Cutos" : "Create a Cutos account"}
         </DialogTitle>
         
         {/* Header */}
@@ -70,9 +70,9 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
             {mode === "signin" ? "Welcome back" : "Create account"}
           </h2>
           <p className="text-muted-foreground mt-2 text-sm">
-            {mode === "signin" 
-              ? "Sign in to continue editing" 
-              : "Get started with SecondCut"}
+            {mode === "signin"
+              ? "Sign in to continue editing"
+              : "Get started with Cutos"}
           </p>
         </div>
 
