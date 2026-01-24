@@ -103,7 +103,7 @@ export function ProjectsDashboard() {
               onClick={() => router.push("/")}
               className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
             >
-            <img src="/cutos.svg" alt="CutOS" className="h-10 w-10" />
+            <img src="/cutos.svg" alt="CutOS" className="h-24 w-24" />
             </button>
           </div>
 
