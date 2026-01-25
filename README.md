@@ -8,11 +8,7 @@
   [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  [🚀 Devpost](https://devpost.com/software/cutos?ref_content=user-portfolio&ref_feature=in_progress) · [Demo](https://cutos.vercel.app) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
-  
-  ---
-  
-  **Built by:** [Julian Cruzet](https://github.com/juliancruzet) · [Shams Haroon](https://github.com/shamsharoon) · [Vincent Wong](https://github.com/VinceKLW) · [Jonathan McKesey](https://github.com/jonathanmckesey)
+  [Demo](https://cutos.vercel.app) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
 </div>
 
 ---
@@ -33,7 +29,7 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 
 <div align="center" style="margin: 40px 0;">
   <img src="./docs/images/demo.gif" alt="CutOS Demo" width="600" style="border: 2px solid #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"/>
-  <p><em>AI-powered editing in action</em></p>
+  <p><em>CutOS Landing Page</em></p>
 </div>
 
 ---
