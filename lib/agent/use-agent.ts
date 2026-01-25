@@ -82,6 +82,8 @@ function getToolDescription(toolName: string, input: Record<string, unknown>): s
     }
     case "createMorphTransition":
       return `Create ${input.durationSeconds}s morph transition`
+    case "isolateVoice":
+      return "Isolating voice from clip..."
     default:
       return toolName
   }
@@ -361,6 +363,104 @@ export function useVideoAgent() {
         case "DUB_CLIP":
           // This case is handled in onToolCall with handleDubClip
           break
+
+        // ISOLATE_VOICE is handled separately as async operation - see handleIsolateVoice
+        case "ISOLATE_VOICE":
+          // This case is handled in onToolCall with handleIsolateVoice
+          break
+      }
+    },
+    [editor]
+  )
+
+  // Handle async voice isolation operation
+  const handleIsolateVoice = useCallback(
+    async (
+      clipId: string,
+      replaceOriginal: boolean | undefined,
+      toolCallId: string
+    ): Promise<{ success: boolean; error?: string }> => {
+      // Find the clip and its media
+      const clip = editor.timelineClips.find((c) => c.id === clipId)
+      if (!clip) {
+        return { success: false, error: "Clip not found" }
+      }
+
+      let media = editor.mediaFiles.find((m) => m.id === clip.mediaId)
+      if (!media) {
+        return { success: false, error: "Media not found for clip" }
+      }
+
+      // If media is still uploading, wait up to 30 seconds for it to complete
+      if (!media.storageUrl && media.isUploading) {
+        let attempts = 0
+        while (attempts < 30) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          media = editor.mediaFiles.find((m) => m.id === clip.mediaId)
+          if (media?.storageUrl) {
+            break // Upload complete
+          }
+          attempts++
+        }
+      }
+
+      if (!media.storageUrl) {
+        return { success: false, error: "Media upload timeout or not uploaded. Please ensure the video is uploaded to cloud storage." }
+      }
+
+      try {
+        // Call the remove-noise API
+        const response = await fetch("/api/remove-noise", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mediaUrl: media.storageUrl,
+            projectId: editor.projectId,
+            mediaName: `${media.name} (Voice Isolated)`,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          return { success: false, error: errorData.error || "Voice isolation failed" }
+        }
+
+        const result = await response.json()
+        if (!result.success) {
+          return { success: false, error: result.error || "Voice isolation failed" }
+        }
+
+        // Create a new media file for the isolated audio
+        const isolatedMediaId = `isolated-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+        const isolatedMedia = {
+          id: isolatedMediaId,
+          name: `${media.name} (Voice Isolated)`,
+          duration: media.duration,
+          durationSeconds: media.durationSeconds,
+          thumbnail: media.thumbnail,
+          type: media.type,
+          objectUrl: result.isolatedMediaUrl,
+          storagePath: result.isolatedMediaPath,
+          storageUrl: result.isolatedMediaUrl,
+          isUploading: false,
+        }
+
+        // Add isolated media to the pool
+        editor.addMediaFiles([isolatedMedia])
+
+        if (replaceOriginal) {
+          // Update the original clip to use the isolated media
+          editor.updateClip(clipId, {
+            mediaId: isolatedMediaId,
+            label: isolatedMedia.name,
+          })
+        }
+
+        return { success: true }
+      } catch (error) {
+        console.error("Voice isolation error:", error)
+        return { success: false, error: error instanceof Error ? error.message : "Unknown error" }
       }
     },
     [editor]
@@ -628,6 +728,34 @@ export function useVideoAgent() {
             }).catch((err) => {
               toolInfo.status = "error"
               toolInfo.description = err instanceof Error ? err.message : "Dubbing failed"
+              toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+              forceUpdate((n) => n + 1)
+            })
+
+            // Return early - don't process as regular action
+            return
+          case "isolateVoice":
+            // Handle voice isolation as a special async case
+            processedToolCallsRef.current.add(tc.toolCallId)
+
+            // Start async voice isolation operation
+            handleIsolateVoice(
+              tc.input.clipId as string,
+              tc.input.replaceOriginal as boolean | undefined,
+              tc.toolCallId
+            ).then((result) => {
+              if (result.success) {
+                toolInfo.status = "success"
+                toolInfo.description = "Voice isolated"
+              } else {
+                toolInfo.status = "error"
+                toolInfo.description = result.error || "Voice isolation failed"
+              }
+              toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+              forceUpdate((n) => n + 1)
+            }).catch((err) => {
+              toolInfo.status = "error"
+              toolInfo.description = err instanceof Error ? err.message : "Voice isolation failed"
               toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
               forceUpdate((n) => n + 1)
             })

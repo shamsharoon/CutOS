@@ -15,6 +15,7 @@ export type AgentAction =
   | { action: "ADD_MEDIA_TO_TIMELINE"; payload: { mediaId: string; trackId: string; startTimeSeconds?: number } }
   | { action: "DUB_CLIP"; payload: { clipId: string; targetLanguage: string; replaceOriginal?: boolean } }
   | { action: "CREATE_MORPH_TRANSITION"; payload: { fromClipId: string; toClipId: string; durationSeconds: number } }
+  | { action: "ISOLATE_VOICE"; payload: { clipId: string; replaceOriginal?: boolean } }
 
 // Define the input schemas
 const splitClipInput = z.object({
@@ -144,6 +145,14 @@ const createMorphTransitionInput = z.object({
     .max(10)
     .default(5)
     .describe("Duration of the morph transition in seconds. Only 5 or 10 seconds are supported. Will be rounded to nearest (5 or 10). Default: 5"),
+})
+
+const isolateVoiceInput = z.object({
+  clipId: z.string().describe("The ID of the clip to isolate voice/vocals from"),
+  replaceOriginal: z
+    .boolean()
+    .optional()
+    .describe("Whether to replace the original clip with the voice-isolated version (default: false, adds as new media)"),
 })
 
 export const videoEditingTools = {
@@ -313,6 +322,22 @@ export const videoEditingTools = {
           fromClipId: input.fromClipId,
           toClipId: input.toClipId,
           durationSeconds: input.durationSeconds,
+        },
+      }
+    },
+  }),
+
+  // Tool: Isolate voice/vocals from audio
+  isolateVoice: tool({
+    description:
+      "Remove background noise and isolate voice/vocals from a video clip using AI. This removes music, ambient noise, and other sounds, keeping only the speaking voice. IMPORTANT: The clip must be uploaded to cloud storage first (has a storageUrl). This operation can take up to a minute. Use this when the user wants to 'remove background noise', 'isolate voice', 'clean up audio', or 'remove music from dialogue'.",
+    inputSchema: isolateVoiceInput,
+    execute: async (input: z.infer<typeof isolateVoiceInput>) => {
+      return {
+        action: "ISOLATE_VOICE" as const,
+        payload: {
+          clipId: input.clipId,
+          replaceOriginal: input.replaceOriginal,
         },
       }
     },
