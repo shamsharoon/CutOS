@@ -10,8 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useEditor, PIXELS_PER_SECOND, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS } from "./editor-context"
+import { useEditor, PIXELS_PER_SECOND, DEFAULT_CLIP_TRANSFORM, DEFAULT_CLIP_EFFECTS, type TimelineClip } from "./editor-context"
 import type { ClipEffects } from "@/lib/projects"
+import { ChromakeyProcessor, type ChromakeyOptions } from "@/lib/chromakey"
 
 interface ExportModalProps {
   open: boolean
@@ -96,6 +97,13 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const abortRef = useRef(false)
 
+  // Keep a ref to the latest sortedVideoClips to avoid stale closure issues
+  // This ensures handleExport always uses the most current clip data
+  const sortedVideoClipsRef = useRef(sortedVideoClips)
+  useEffect(() => {
+    sortedVideoClipsRef.current = sortedVideoClips
+  }, [sortedVideoClips])
+
   // Reset state when modal opens
   useEffect(() => {
     if (open) {
@@ -107,7 +115,9 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
   }, [open])
 
   const handleExport = useCallback(async () => {
-    if (!canvasRef.current || sortedVideoClips.length === 0) return
+    // Use ref to get the latest clips, avoiding stale closure issues
+    const currentClips = sortedVideoClipsRef.current
+    if (!canvasRef.current || currentClips.length === 0) return
 
     setIsExporting(true)
     setProgress(0)
@@ -132,7 +142,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     console.log("[Export] Canvas filter support:", supportsCanvasFilter)
 
     // Sort clips by start time
-    const clips = [...sortedVideoClips].sort((a, b) => a.startTime - b.startTime)
+    const clips = [...currentClips].sort((a, b) => a.startTime - b.startTime)
 
     // Debug: Log clip effects summary at export start
     console.log("[Export] Starting export with", clips.length, "clips:")
@@ -255,42 +265,42 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Track logged clips to avoid flooding console
     const loggedClips = new Set<string>()
 
-    // Helper to draw a frame to canvas
-    const drawFrame = (video: HTMLVideoElement, clip: typeof clips[0]) => {
-      const transform = clip.transform ?? DEFAULT_CLIP_TRANSFORM
-      const effects = clip.effects ?? DEFAULT_CLIP_EFFECTS
+    // Setup chromakey processor for clips that need it
+    const chromakeyCanvas = document.createElement("canvas")
+    chromakeyCanvas.width = canvas.width
+    chromakeyCanvas.height = canvas.height
+    let chromakeyProcessor: ChromakeyProcessor | null = null
 
-      // Debug: Log effects only once per clip
-      if (!loggedClips.has(clip.id)) {
-        const filterString = buildFilterString(effects)
-        console.log("[Export] Rendering clip:", clip.id, {
-          preset: effects.preset,
-          brightness: effects.brightness,
-          contrast: effects.contrast,
-          saturate: effects.saturate,
-          blur: effects.blur,
-          filterString: filterString || "(none)",
-          opacity: transform.opacity,
-          scale: transform.scale,
-        })
-        loggedClips.add(clip.id)
+    // Check if any clip needs chromakey
+    const hasChromakeyClips = clips.some(c => c.effects?.chromakey?.enabled)
+    if (hasChromakeyClips) {
+      chromakeyProcessor = new ChromakeyProcessor(chromakeyCanvas)
+      if (!chromakeyProcessor.isReady()) {
+        console.warn("[Export] Chromakey processor failed to initialize")
+        chromakeyProcessor = null
+      } else {
+        console.log("[Export] Chromakey processor initialized")
       }
+    }
 
-      // Clear canvas
-      ctx.fillStyle = "#000000"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    // Helper to find all clips at a given timeline time, sorted by track (topmost first)
+    const findClipsAtTime = (timelineTime: number): TimelineClip[] => {
+      const timePixels = timelineTime * PIXELS_PER_SECOND
+      const clipsAtTime = clips.filter(c => {
+        return timePixels >= c.startTime && timePixels < c.startTime + c.duration
+      })
+      // Sort by track - V2 > V1 > A2 > A1 (topmost first)
+      const trackOrder = ["V2", "V1", "A2", "A1"]
+      return clipsAtTime.sort((a, b) => {
+        const aIndex = trackOrder.indexOf(a.trackId)
+        const bIndex = trackOrder.indexOf(b.trackId)
+        return aIndex - bIndex
+      })
+    }
 
-      // Save context state
-      ctx.save()
-
-      // Apply filter - build fresh for each frame to ensure it's applied
-      const filterString = buildFilterString(effects)
-      ctx.filter = filterString || "none"
-
-      // Apply opacity
-      ctx.globalAlpha = transform.opacity / 100
-
-      // Calculate drawing position and size (maintain aspect ratio)
+    // Helper to calculate draw dimensions and position for a video
+    const getDrawParams = (video: HTMLVideoElement, clip: TimelineClip) => {
+      const transform = clip.transform ?? DEFAULT_CLIP_TRANSFORM
       const videoAspect = video.videoWidth / video.videoHeight
       const canvasAspect = canvas.width / canvas.height
 
@@ -311,15 +321,117 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const drawX = (canvas.width - drawWidth) / 2 + transform.positionX
       const drawY = (canvas.height - drawHeight) / 2 + transform.positionY
 
-      // Draw video frame
+      return { drawX, drawY, drawWidth, drawHeight, transform }
+    }
+
+    // Helper to draw a single video layer (without chromakey)
+    const drawVideoLayer = (video: HTMLVideoElement, clip: TimelineClip, clearCanvas: boolean = true) => {
+      const effects = clip.effects ?? DEFAULT_CLIP_EFFECTS
+      const { drawX, drawY, drawWidth, drawHeight, transform } = getDrawParams(video, clip)
+
+      if (clearCanvas) {
+        ctx.fillStyle = "#000000"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+      }
+
+      ctx.save()
+      const filterString = buildFilterString(effects)
+      ctx.filter = filterString || "none"
+      ctx.globalAlpha = transform.opacity / 100
+
       try {
         ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
       } catch (e) {
         console.warn("Draw error:", e)
       }
 
-      // Restore context
       ctx.restore()
+    }
+
+    // Helper to draw a frame with chromakey compositing
+    const drawFrameWithChromakey = (
+      foregroundVideo: HTMLVideoElement,
+      foregroundClip: TimelineClip,
+      backgroundVideo: HTMLVideoElement | null,
+      backgroundClip: TimelineClip | null
+    ) => {
+      const effects = foregroundClip.effects ?? DEFAULT_CLIP_EFFECTS
+      const { drawX, drawY, drawWidth, drawHeight, transform } = getDrawParams(foregroundVideo, foregroundClip)
+
+      // Clear canvas
+      ctx.fillStyle = "#000000"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      // Draw background first if available
+      if (backgroundVideo && backgroundClip) {
+        drawVideoLayer(backgroundVideo, backgroundClip, false)
+      }
+
+      // Process foreground through chromakey
+      if (chromakeyProcessor && chromakeyProcessor.isReady()) {
+        const chromakeyOptions: ChromakeyOptions = {
+          keyColor: effects.chromakey?.keyColor ?? "#00FF00",
+          similarity: effects.chromakey?.similarity ?? 0.4,
+          smoothness: effects.chromakey?.smoothness ?? 0.1,
+          spill: effects.chromakey?.spill ?? 0.3,
+        }
+
+        // Process the foreground video through chromakey
+        chromakeyProcessor.processFrame(foregroundVideo, chromakeyOptions)
+
+        // Draw the chromakeyed result onto the main canvas
+        ctx.save()
+        const filterString = buildFilterString(effects)
+        ctx.filter = filterString || "none"
+        ctx.globalAlpha = transform.opacity / 100
+
+        try {
+          ctx.drawImage(chromakeyCanvas, drawX, drawY, drawWidth, drawHeight)
+        } catch (e) {
+          console.warn("Chromakey draw error:", e)
+        }
+
+        ctx.restore()
+      } else {
+        // Fallback: draw without chromakey if processor not available
+        drawVideoLayer(foregroundVideo, foregroundClip, false)
+      }
+    }
+
+    // Main helper to draw a frame to canvas
+    const drawFrame = (video: HTMLVideoElement, clip: TimelineClip, timelineTime: number) => {
+      const effects = clip.effects ?? DEFAULT_CLIP_EFFECTS
+
+      // Debug: Log effects only once per clip
+      if (!loggedClips.has(clip.id)) {
+        const filterString = buildFilterString(effects)
+        console.log("[Export] Rendering clip:", clip.id, {
+          preset: effects.preset,
+          brightness: effects.brightness,
+          contrast: effects.contrast,
+          saturate: effects.saturate,
+          blur: effects.blur,
+          chromakeyEnabled: effects.chromakey?.enabled ?? false,
+          filterString: filterString || "(none)",
+        })
+        loggedClips.add(clip.id)
+      }
+
+      // Check if chromakey is enabled for this clip
+      if (effects.chromakey?.enabled && chromakeyProcessor) {
+        // Find the background clip (the next clip in the layer order)
+        const clipsAtTime = findClipsAtTime(timelineTime)
+        const clipIndex = clipsAtTime.findIndex(c => c.id === clip.id)
+        const backgroundClip = clipIndex >= 0 && clipIndex < clipsAtTime.length - 1
+          ? clipsAtTime[clipIndex + 1]
+          : null
+        const backgroundVideo = backgroundClip ? videoElements.get(backgroundClip.id) ?? null : null
+
+        drawFrameWithChromakey(video, clip, backgroundVideo, backgroundClip)
+      } else {
+        // Regular drawing without chromakey
+        drawVideoLayer(video, clip, true)
+      }
     }
 
     // Calculate timeline time from elapsed export time
@@ -400,7 +512,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
             }
           }
 
-          drawFrame(video, clip)
+          drawFrame(video, clip, timelineTime)
         }
       } else {
         // No clip at this time, draw black
@@ -455,9 +567,13 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
         video.src = ""
         video.load()
       })
+      // Cleanup chromakey processor
+      if (chromakeyProcessor) {
+        chromakeyProcessor.dispose()
+      }
     }
 
-  }, [sortedVideoClips, mediaFiles, timelineEndTime, quality])
+  }, [mediaFiles, timelineEndTime, quality])
 
   const handleCancel = () => {
     if (isExporting) {
