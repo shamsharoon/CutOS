@@ -1,155 +1,340 @@
-# CutOS
+<div align="center">
+  <img src="./public/cutos.svg" alt="CutOS Logo" width="200"/>
+  
+  # CutOS
+  
+  **Edit videos at the speed of thought**
+  
+  [![Next.js](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
+  [![React](https://img.shields.io/badge/React-19-blue)](https://react.dev/)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org/)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  
+  [Demo](https://cutos.vercel.app) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
+</div>
 
-Edit videos at the speed of thought with AI-powered assistance.
+---
 
-## Overview
+## 🎬 Overview
 
-CutOS is a revolutionary AI-first video editing platform that combines traditional non-linear editing capabilities with cutting-edge AI features. Edit your videos through natural language commands, apply AI-powered effects, and transform your footage with intelligent automation.
+CutOS is an **AI-first video editor** that understands natural language. Describe your edits in plain English, and watch them happen instantly. No steep learning curves, no complex menus—just tell the AI what you want.
 
-## Key Features
+> *"Split this clip at 10 seconds and add a vintage effect"* — Done.
 
-### AI-Powered Editing
-- **Chat-Based Editor**: Describe edits in plain English - "split the clip at 10 seconds", "add a vintage effect", "remove the green screen"
-- **Intelligent Agent**: GPT-4o-powered editing agent that understands context and executes complex editing operations
-- **AI Dubbing**: Translate and dub your videos into 29+ languages while preserving emotion, timing, and tone (powered by ElevenLabs)
-- **AI Morph Transitions**: Generate smooth, AI-powered morphing transitions between clips (powered by Kling API)
+### ✨ Why CutOS?
 
-### Content Discovery
-- **Natural Language Video Search**: Find specific moments in your videos using conversational queries like "person walking" or "car driving" (powered by TwelveLabs Marengo 3.0)
-- **Semantic Understanding**: Search by visual content, audio, and context across your entire video library
+- 🤖 **Conversational Editing** - Edit videos by describing what you want
+- 🔍 **Semantic Search** - Find moments in footage using natural language
+- 🌍 **29-Language Dubbing** - Translate while preserving emotion and timing
+- 🎨 **Real-Time Effects** - GPU-accelerated WebGL rendering
+- 📱 **Web-Based** - No installation required, works in your browser
 
-### Professional Editing Tools
-- **Multi-Track Timeline**: Non-destructive editing with 2 video tracks and 2 audio tracks
-- **Real-Time Preview**: Canvas-based video playback with instant effect rendering
-- **Clip Operations**: Split, trim, move, delete, copy, and paste clips with precision
-- **Undo/Redo System**: Full editing history with keyboard shortcuts
+<!-- Add demo GIF here -->
+![CutOS Demo](./docs/demo.gif)
+*AI-powered editing in action*
 
-### Visual Effects & Processing
-- **Effect Presets**: Grayscale, sepia, noir, VHS, glitch, ASCII art, cyberpunk, and more
-- **Adjustable Parameters**: Fine-tune blur, brightness, contrast, saturation, and hue
-- **Chromakey (Green Screen)**: GPU-accelerated WebGL-based chroma keying with any color
-- **Custom Effect Chains**: Combine multiple effects on a single clip
+---
 
-### Export & Publishing
-- **High-Quality Export**: Export to MP4 or WebM with customizable quality settings
-- **Multiple Quality Presets**: Low (2.5 Mbps), Medium (5 Mbps), High (10 Mbps)
-- **1080p Resolution**: Export at 1920x1080 with full effects rendering
+## 🚀 Features
 
-### Project Management
-- **Cloud Storage**: Save and sync projects with Supabase
-- **Auto-Save**: Never lose your work with automatic project saving
-- **Project Organization**: Manage multiple projects with metadata and thumbnails
-- **Collaborative Ready**: Built on Supabase with realtime capabilities
+### 🎙️ AI-Powered Tools
 
-## Tech Stack
+| Feature | Description |
+|---------|-------------|
+| **Natural Language Editing** | "Split the clip in half and apply noir effect" — AI executes complex multi-step operations |
+| **Semantic Video Search** | Find specific moments: "person walking", "car driving" — powered by TwelveLabs Marengo 3.0 |
+| **AI Dubbing** | Translate to 29 languages while preserving speaker emotion and timing (ElevenLabs) |
+| **Voice Isolation** | Remove background noise, music, and ambient sounds — keep only the voice |
+| **AI Morph Transitions** | Generate smooth morphing transitions between clips (Kling API) |
+
+### 🎬 Professional Editing
+
+- **Multi-Track Timeline** - 2 video tracks + 2 audio tracks with non-destructive editing
+- **Precision Tools** - Split, trim, extend clips with frame-perfect accuracy
+- **Drag & Drop** - Magnetic snapping for seamless clip placement
+- **Real-Time Preview** - Canvas-based playback with instant effect rendering
+- **Effect Library** - Grayscale, sepia, VHS, glitch, cyberpunk, ASCII art, and more
+- **Chromakey** - GPU-accelerated green screen removal (any color)
+- **Undo/Redo** - Full editing history with keyboard shortcuts
+
+### 🎨 Visual Effects
+
+<!-- Add effect showcase image -->
+![Effects Showcase](./docs/effects-showcase.png)
+
+### 📤 Export & Cloud
+
+- Export to MP4/WebM at 1080p
+- Cloud storage with Supabase
+- Auto-save your projects
+- Multiple quality presets (Low/Medium/High)
+
+---
+
+## 📸 Screenshots
+
+<!-- Add screenshots in /docs/images/ folder -->
+
+<div align="center">
+  <img src="./docs/images/editor-interface.png" alt="Editor Interface" width="800"/>
+  <p><em>Main editing interface with timeline and preview</em></p>
+</div>
+
+<div align="center">
+  <img src="./docs/images/ai-chat.png" alt="AI Chat" width="800"/>
+  <p><em>Natural language AI editing assistant</em></p>
+</div>
+
+<div align="center">
+  <img src="./docs/images/effects-panel.png" alt="Effects" width="800"/>
+  <p><em>Real-time effects with adjustable parameters</em></p>
+</div>
+
+---
+
+## 🛠️ Tech Stack
+
+<div align="center">
 
 ### Frontend
-- **Framework**: Next.js 16 (App Router)
-- **UI Library**: React 19.2.1
-- **Styling**: Tailwind CSS 4.x
-- **Components**: Radix UI, shadcn/ui
-- **Animations**: Framer Motion
-- **Language**: TypeScript
+![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)
+![React](https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)
+![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8?style=for-the-badge&logo=tailwind-css)
+
+### AI & APIs
+![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-412991?style=for-the-badge&logo=openai)
+![TwelveLabs](https://img.shields.io/badge/TwelveLabs-Marengo_3.0-orange?style=for-the-badge)
+![ElevenLabs](https://img.shields.io/badge/ElevenLabs-Voice_AI-blueviolet?style=for-the-badge)
 
 ### Backend & Services
-- **Database & Auth**: Supabase (PostgreSQL + Authentication + Storage)
-- **AI Models**:
-  - OpenAI GPT-4o (editing agent)
-  - TwelveLabs Marengo 3.0 (video understanding)
-  - ElevenLabs (AI dubbing)
-  - Kling API (morph transitions)
-- **Video Processing**: WebGL, Canvas API, MediaRecorder API
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-black?style=for-the-badge&logo=vercel)
+![FFmpeg](https://img.shields.io/badge/FFmpeg-007808?style=for-the-badge&logo=ffmpeg)
 
-## Getting Started
+</div>
+
+---
+
+## 🏃 Quick Start
 
 ### Prerequisites
 
 - Node.js 18+
-- npm, pnpm, or yarn
+- npm/pnpm
 - Supabase account
+- API keys (OpenAI, TwelveLabs, ElevenLabs, Kling)
 
 ### Installation
 
-1. Clone the repository:
 ```bash
+# Clone the repository
 git clone https://github.com/shamsharoon/cutos.git
 cd cutos
-```
 
-2. Install dependencies:
-```bash
+# Install dependencies
 npm install
-# or
-pnpm install
+
+# Copy environment variables
+cp .env.example .env.local
+
+# Add your API keys to .env.local
+# See "Environment Variables" section below
 ```
 
-3. Set up environment variables:
-   - Copy `.env.example` to `.env.local`
-   - Add your Supabase credentials
+### Environment Variables
 
-4. Run the development server:
-```bash
-npm run dev
-```
-
-5. Open [http://localhost:3000](http://localhost:3000) in your browser
-
-## Environment Variables
-
-Create a `.env.local` file in the root directory with the following variables:
+Create a `.env.local` file:
 
 ```bash
 # Supabase
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 # AI Services
-OPENAI_API_KEY=your_openai_api_key                    # For AI editing agent
-TWELVELABS_API_KEY=your_twelvelabs_api_key            # For video search
-ELEVENLABS_API_KEY=your_elevenlabs_api_key            # For AI dubbing
-KLING_ACCESS_KEY=your_kling_access_key                # For morph transitions
+OPENAI_API_KEY=your_openai_key
+TWELVELABS_API_KEY=your_twelvelabs_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
+KLING_ACCESS_KEY=your_kling_access_key
 KLING_SECRET_KEY=your_kling_secret_key
 ```
 
-See `.env.example` for a template.
+### Run Development Server
 
-## How It Works
+```bash
+npm run dev
+```
 
-CutOS uses a combination of traditional video editing and AI assistance:
+Open [http://localhost:3000](http://localhost:3000)
 
-1. **Upload Your Media**: Import videos and audio files to your project
-2. **Build Your Timeline**: Drag clips onto the multi-track timeline
-3. **Edit with AI**: Type commands like:
-   - "Split this clip at 15 seconds"
-   - "Add a vintage VHS effect to the second clip"
-   - "Remove the green screen from this video"
-   - "Dub this video in Spanish"
-   - "Find all clips with people walking"
-4. **Apply Effects**: Choose from presets or fine-tune parameters
-5. **Export**: Render your video in high quality MP4 or WebM
+---
 
-The AI agent understands your timeline context and executes complex operations automatically, making video editing as simple as having a conversation.
+## 🎯 Usage Examples
 
-## Keyboard Shortcuts
+### Natural Language Editing
 
-- `Ctrl/Cmd + Z` - Undo
-- `Ctrl/Cmd + Shift + Z` - Redo
-- `Ctrl/Cmd + C` - Copy selected clip
-- `Ctrl/Cmd + V` - Paste clip
-- `Space` - Play/pause
-- `Esc` - Exit fullscreen
+```
+User: "Split the clip at 15 seconds and add a vintage VHS effect"
+AI: ✓ Split at 15s. Applied VHS effect.
 
-## Architecture Highlights
+User: "Remove the green screen from intro.mp4"
+AI: ✓ Green screen removed from 'intro.mp4'.
 
-- **Non-Destructive Editing**: Original media files are never modified
-- **WebGL Rendering**: GPU-accelerated effects for real-time performance
-- **Streaming AI Responses**: Server-sent events for responsive AI interactions
-- **Cloud-Native**: Built on Supabase with automatic syncing and backup
+User: "Dub this video in Spanish"
+AI: ✓ Dubbing to Spanish... (this may take a moment)
+```
 
-## Contributing
+### Semantic Video Search
+
+```
+Search: "person walking on beach"
+→ Finds all clips with people walking on beaches
+
+Search: "car driving at night"
+→ Finds nighttime driving scenes
+```
+
+---
+
+## 📁 Project Structure
+
+```
+cutos/
+├── app/                      # Next.js App Router
+│   ├── api/                  # API routes
+│   │   ├── agent/           # AI agent endpoint
+│   │   ├── dub/             # Dubbing API
+│   │   ├── remove-noise/    # Voice isolation
+│   │   └── twelvelabs/      # Video search
+│   ├── projects/            # Project pages
+│   └── page.tsx             # Landing page
+├── components/              # React components
+│   ├── ui/                  # shadcn/ui components
+│   ├── editor-shell.tsx     # Main editor
+│   ├── timeline.tsx         # Timeline component
+│   └── media-panel.tsx      # Media library
+├── lib/                     # Utilities
+│   ├── agent/              # AI agent logic
+│   ├── supabase/           # Database client
+│   └── utils.ts            # Helper functions
+└── public/                  # Static assets
+```
+
+---
+
+## 🎨 Creating GIFs & Screenshots
+
+### For Demo GIFs
+
+1. **Record with OBS/QuickTime**
+   - Record your screen at 1920x1080
+   - Keep recordings under 30 seconds for optimal file size
+   - Focus on one feature at a time
+
+2. **Convert to GIF**
+   ```bash
+   # Using FFmpeg
+   ffmpeg -i input.mp4 -vf "fps=15,scale=1000:-1:flags=lanczos" -c:v gif output.gif
+   
+   # Or use online tools:
+   # - https://ezgif.com/video-to-gif
+   # - https://cloudconvert.com/mp4-to-gif
+   ```
+
+3. **Optimize GIF Size**
+   ```bash
+   # Using gifsicle
+   gifsicle -O3 --colors 256 output.gif -o optimized.gif
+   ```
+
+### File Organization
+
+```
+cutos/
+├── docs/
+│   ├── demo.gif              # Main demo GIF (homepage)
+│   ├── effects-showcase.png  # Effects preview
+│   └── images/
+│       ├── editor-interface.png
+│       ├── ai-chat.png
+│       ├── effects-panel.png
+│       ├── timeline-editing.gif
+│       └── search-demo.gif
+└── public/
+    └── demo.mp4              # Demo video for landing page
+```
+
+### Screenshot Tips
+
+- Use full editor interface at 1920x1080
+- Crop to show relevant sections
+- Add subtle drop shadows in post
+- Use dark mode for consistency
+- Compress with TinyPNG or similar
+
+---
+
+## 🎮 Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Space` | Play/Pause |
+| `Cmd/Ctrl + Z` | Undo |
+| `Cmd/Ctrl + Shift + Z` | Redo |
+| `Cmd/Ctrl + C` | Copy selected clip |
+| `Cmd/Ctrl + V` | Paste clip |
+| `S` | Split clip at playhead |
+| `Delete` | Delete selected clip |
+| `Esc` | Exit fullscreen |
+
+---
+
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+1. Fork the project
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-MIT
+---
+
+## 🐛 Known Issues
+
+- Voice isolation requires clips to be uploaded to cloud storage first
+- Morph transitions only work between sequential clips on the same track
+- Large video files (>500MB) may experience slower processing
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **TwelveLabs** - Semantic video understanding
+- **ElevenLabs** - Voice AI technology
+- **OpenAI** - GPT-4o for intelligent editing
+- **Kling AI** - Morph transition generation
+- **Supabase** - Backend infrastructure
+- **Vercel** - Hosting and deployment
+
+---
+
+## 📧 Contact
+
+Project Link: [https://github.com/shamsharoon/cutos](https://github.com/shamsharoon/cutos)
+
+Demo: [https://cutos.vercel.app](https://cutos.vercel.app)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ for creators who move fast</sub>
+</div>
