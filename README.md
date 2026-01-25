@@ -63,6 +63,11 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
   <p><em>Real-time chromakey with GPU acceleration</em></p>
 </div>
 
+<div align="center" style="margin: 40px 0;">
+  <img src="./docs/images/morph.gif" alt="AI Morph Transition" width="800" style="border: 2px solid #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"/>
+  <p><em>AI morph transition - made directly with CutOS</em></p>
+</div>
+
 ### 📤 Export & Cloud
 
 - Export to MP4/WebM at 1080p
