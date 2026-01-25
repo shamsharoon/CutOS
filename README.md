@@ -21,11 +21,11 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 
 ### ✨ Why CutOS?
 
-- 🤖 **Conversational Editing** - Edit videos by describing what you want
-- 🔍 **Semantic Search** - Find moments in footage using natural language
-- 🌍 **29-Language Dubbing** - Translate while preserving emotion and timing
-- 🎨 **Real-Time Effects** - GPU-accelerated WebGL rendering
-- 📱 **Web-Based** - No installation required, works in your browser
+- **Conversational Editing** - Edit videos by describing what you want
+- **Semantic Search** - Find moments in footage using natural language
+- **29-Language Dubbing** - Translate while preserving emotion and timing
+- **Real-Time Effects** - GPU-accelerated WebGL rendering
+- **Web-Based** - No installation required, works in your browser
 
 <!-- Add demo GIF here -->
 ![CutOS Demo](./docs/demo.gif)
