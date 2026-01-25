@@ -284,6 +284,7 @@ cutos/
 | `Cmd/Ctrl + V` | Paste clip |
 | `S` | Split clip at playhead |
 | `Delete` | Delete selected clip |
+| `F` | Enter fullscreen |
 | `Esc` | Exit fullscreen |
 
 ---
