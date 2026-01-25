@@ -56,6 +56,13 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 - **Chromakey** - GPU-accelerated green screen removal (any color)
 - **Undo/Redo** - Full editing history with keyboard shortcuts
 
+### 🔍 Semantic Video Search (Video RAG)
+
+<div align="center" style="margin: 40px 0;">
+  <img src="./docs/images/vrag.gif" alt="Video RAG Search" width="800" style="border: 2px solid #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"/>
+  <p><em>Find exact moments in hours of footage with natural language queries</em></p>
+</div>
+
 ### 🎨 Visual Effects
 
 <div align="center" style="margin: 40px 0;">
