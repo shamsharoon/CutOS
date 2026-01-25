@@ -8,7 +8,7 @@
   [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  [🎥 Demo Video](https://www.youtube.com/watch?v=DBAcxYURDIQ) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
+  [🎥 Demo Video](https://youtu.be/t0zHzwyXm_Q) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
 </div>
 
 ---
@@ -33,7 +33,7 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 </div>
 
 <div align="center">
-  <a href="https://www.youtube.com/watch?v=DBAcxYURDIQ">
+  <a href="https://youtu.be/t0zHzwyXm_Q">
     <img src="https://img.shields.io/badge/▶️_Watch_Demo_Video-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video"/>
   </a>
 </div>
@@ -338,7 +338,7 @@ Project Link: [https://github.com/shamsharoon/cutos](https://github.com/shamshar
 
 Devpost: [https://devpost.com/software/cutos](https://devpost.com/software/cutos?ref_content=user-portfolio&ref_feature=in_progress)
 
-Demo Video: [https://www.youtube.com/watch?v=DBAcxYURDIQ](https://www.youtube.com/watch?v=DBAcxYURDIQ)
+Demo Video: [https://youtu.be/t0zHzwyXm_Q](https://youtu.be/t0zHzwyXm_Q)
 
 Live App: [https://cutos.vercel.app](https://cutos.vercel.app)
 
