@@ -8,7 +8,11 @@
   [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org/)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   
-  [Demo](https://cutos.vercel.app) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
+  [🚀 Devpost](https://devpost.com/software/cutos?ref_content=user-portfolio&ref_feature=in_progress) · [Demo](https://cutos.vercel.app) · [Report Bug](https://github.com/shamsharoon/cutos/issues) · [Request Feature](https://github.com/shamsharoon/cutos/issues)
+  
+  ---
+  
+  **Built by:** [Julian Cruzet](https://github.com/juliancruzet) · [Shams Haroon](https://github.com/shamsharoon) · [Vincent Wong](https://github.com/VinceKLW) · [Jonathan McKesey](https://github.com/jonathanmckesey)
 </div>
 
 ---
@@ -314,7 +318,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📧 Contact
 
+**Team:**
+- Julian Cruzet
+- Shams Haroon
+- Vincent Wong
+- Jonathan McKesey
+
 Project Link: [https://github.com/shamsharoon/cutos](https://github.com/shamsharoon/cutos)
+
+Devpost: [https://devpost.com/software/cutos](https://devpost.com/software/cutos?ref_content=user-portfolio&ref_feature=in_progress)
 
 Demo: [https://cutos.vercel.app](https://cutos.vercel.app)
 
