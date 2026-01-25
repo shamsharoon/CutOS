@@ -29,7 +29,7 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 
 <div align="center" style="margin: 40px 0;">
   <img src="./docs/images/demo.gif" alt="CutOS Demo" width="600" style="border: 2px solid #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"/>
-  <p><em>AI-powered editing in action</em></p>
+  <p><em>CutOS Landing Page</em></p>
 </div>
 
 ---
