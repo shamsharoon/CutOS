@@ -377,7 +377,6 @@ export function useVideoAgent() {
   const handleIsolateVoice = useCallback(
     async (
       clipId: string,
-      replaceOriginal: boolean | undefined,
       toolCallId: string
     ): Promise<{ success: boolean; error?: string }> => {
       // Find the clip and its media
@@ -449,13 +448,11 @@ export function useVideoAgent() {
         // Add isolated media to the pool
         editor.addMediaFiles([isolatedMedia])
 
-        if (replaceOriginal) {
-          // Update the original clip to use the isolated media
-          editor.updateClip(clipId, {
-            mediaId: isolatedMediaId,
-            label: isolatedMedia.name,
-          })
-        }
+        // Always update the original clip to use the isolated media
+        editor.updateClip(clipId, {
+          mediaId: isolatedMediaId,
+          label: isolatedMedia.name,
+        })
 
         return { success: true }
       } catch (error) {
@@ -471,7 +468,6 @@ export function useVideoAgent() {
     async (
       clipId: string,
       targetLanguage: string,
-      replaceOriginal: boolean | undefined,
       toolCallId: string
     ): Promise<{ success: boolean; error?: string }> => {
       // Find the clip and its media
@@ -540,13 +536,11 @@ export function useVideoAgent() {
         // Add dubbed media to the pool
         editor.addMediaFiles([dubbedMedia])
 
-        if (replaceOriginal) {
-          // Update the original clip to use the dubbed media
-          editor.updateClip(clipId, {
-            mediaId: dubbedMediaId,
-            label: dubbedMedia.name,
-          })
-        }
+        // Always update the original clip to use the dubbed media
+        editor.updateClip(clipId, {
+          mediaId: dubbedMediaId,
+          label: dubbedMedia.name,
+        })
 
         return { success: true }
       } catch (error) {
@@ -713,7 +707,6 @@ export function useVideoAgent() {
             handleDubClip(
               tc.input.clipId as string,
               tc.input.targetLanguage as string,
-              tc.input.replaceOriginal as boolean | undefined,
               tc.toolCallId
             ).then((result) => {
               if (result.success) {
@@ -741,7 +734,6 @@ export function useVideoAgent() {
             // Start async voice isolation operation
             handleIsolateVoice(
               tc.input.clipId as string,
-              tc.input.replaceOriginal as boolean | undefined,
               tc.toolCallId
             ).then((result) => {
               if (result.success) {

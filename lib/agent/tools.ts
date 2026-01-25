@@ -13,9 +13,9 @@ export type AgentAction =
   | { action: "APPLY_EFFECT"; payload: { clipId: string; effect: string } }
   | { action: "APPLY_CHROMAKEY"; payload: { clipId: string; enabled: boolean; keyColor?: string; similarity?: number; smoothness?: number; spill?: number } }
   | { action: "ADD_MEDIA_TO_TIMELINE"; payload: { mediaId: string; trackId: string; startTimeSeconds?: number } }
-  | { action: "DUB_CLIP"; payload: { clipId: string; targetLanguage: string; replaceOriginal?: boolean } }
+  | { action: "DUB_CLIP"; payload: { clipId: string; targetLanguage: string } }
   | { action: "CREATE_MORPH_TRANSITION"; payload: { fromClipId: string; toClipId: string; durationSeconds: number } }
-  | { action: "ISOLATE_VOICE"; payload: { clipId: string; replaceOriginal?: boolean } }
+  | { action: "ISOLATE_VOICE"; payload: { clipId: string } }
 
 // Define the input schemas
 const splitClipInput = z.object({
@@ -149,10 +149,6 @@ const createMorphTransitionInput = z.object({
 
 const isolateVoiceInput = z.object({
   clipId: z.string().describe("The ID of the clip to isolate voice/vocals from"),
-  replaceOriginal: z
-    .boolean()
-    .optional()
-    .describe("Whether to replace the original clip with the voice-isolated version (default: false, adds as new media)"),
 })
 
 export const videoEditingTools = {
@@ -296,7 +292,7 @@ export const videoEditingTools = {
   // Tool: Dub/translate a clip to another language
   dubClip: tool({
     description:
-      "Dub (translate) the audio of a video clip to another language using AI. This preserves the emotion, timing, and tone of the original speakers while translating the speech. **IMPORTANT: The clip must be uploaded to cloud storage first (has a storageUrl). This operation can take several minutes for longer clips.** Supported languages: English (en), Spanish (es), French (fr), German (de), Portuguese (pt), Chinese (zh), Japanese (ja), Arabic (ar), Russian (ru), Hindi (hi), Korean (ko), Indonesian (id), Italian (it), Dutch (nl), Turkish (tr), Polish (pl), Swedish (sv), Filipino (fil), Malay (ms), Romanian (ro), Ukrainian (uk), Greek (el), Czech (cs), Danish (da), Finnish (fi), Bulgarian (bg), Croatian (hr), Slovak (sk), Tamil (ta).",
+      "Dub (translate) the audio of a video clip to another language using AI. This preserves the emotion, timing, and tone of the original speakers while translating the speech. The original clip on the timeline will be automatically replaced with the dubbed version. **IMPORTANT: The clip must be uploaded to cloud storage first (has a storageUrl). This operation can take several minutes for longer clips.** Supported languages: English (en), Spanish (es), French (fr), German (de), Portuguese (pt), Chinese (zh), Japanese (ja), Arabic (ar), Russian (ru), Hindi (hi), Korean (ko), Indonesian (id), Italian (it), Dutch (nl), Turkish (tr), Polish (pl), Swedish (sv), Filipino (fil), Malay (ms), Romanian (ro), Ukrainian (uk), Greek (el), Czech (cs), Danish (da), Finnish (fi), Bulgarian (bg), Croatian (hr), Slovak (sk), Tamil (ta).",
     inputSchema: dubClipInput,
     execute: async (input: z.infer<typeof dubClipInput>) => {
       return {
@@ -304,7 +300,7 @@ export const videoEditingTools = {
         payload: {
           clipId: input.clipId,
           targetLanguage: input.targetLanguage,
-          replaceOriginal: input.replaceOriginal,
+          replaceOriginal: true,
         },
       }
     },
@@ -330,14 +326,14 @@ export const videoEditingTools = {
   // Tool: Isolate voice/vocals from audio
   isolateVoice: tool({
     description:
-      "Remove background noise and isolate voice/vocals from a video clip using AI. This removes music, ambient noise, and other sounds, keeping only the speaking voice. IMPORTANT: The clip must be uploaded to cloud storage first (has a storageUrl). This operation can take up to a minute. Use this when the user wants to 'remove background noise', 'isolate voice', 'clean up audio', or 'remove music from dialogue'.",
+      "Remove background noise and isolate voice/vocals from a video clip using AI. This removes music, ambient noise, and other sounds, keeping only the speaking voice. The original clip on the timeline will be automatically replaced with the voice-isolated version. IMPORTANT: The clip must be uploaded to cloud storage first (has a storageUrl). This operation can take up to a minute. Use this when the user wants to 'remove background noise', 'isolate voice', 'clean up audio', or 'remove music from dialogue'.",
     inputSchema: isolateVoiceInput,
     execute: async (input: z.infer<typeof isolateVoiceInput>) => {
       return {
         action: "ISOLATE_VOICE" as const,
         payload: {
           clipId: input.clipId,
-          replaceOriginal: input.replaceOriginal,
+          replaceOriginal: true,
         },
       }
     },

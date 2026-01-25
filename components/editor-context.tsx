@@ -439,13 +439,22 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const addMediaFiles = useCallback(async (files: MediaFile[]) => {
     // Add files immediately with uploading state
-    const filesWithUploading = files.map(f => ({ ...f, isUploading: !!projectId }))
+    // Only mark as uploading if it doesn't already have a storageUrl (e.g., from voice isolation)
+    const filesWithUploading = files.map(f => ({ 
+      ...f, 
+      isUploading: f.storageUrl ? false : !!projectId 
+    }))
     setMediaFiles((prev) => [...prev, ...filesWithUploading])
     setHasUnsavedChanges(true)
 
     // Upload each file to storage if project exists
     if (projectId) {
       for (const file of files) {
+        // Skip upload if file already has a storageUrl (e.g., from voice isolation/dubbing)
+        if (file.storageUrl) {
+          continue
+        }
+        
         if (file.file) {
           try {
             const { data, error } = await uploadMediaFile(projectId, file.file)
