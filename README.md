@@ -27,9 +27,10 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 - **Real-Time Effects** - GPU-accelerated WebGL rendering
 - **Web-Based** - No installation required, works in your browser
 
-<!-- Add demo GIF here -->
-![CutOS Demo](./docs/demo.gif)
-*AI-powered editing in action*
+<div align="center" style="margin: 40px 0;">
+  <img src="./docs/images/demo.gif" alt="CutOS Demo" width="600" style="border: 2px solid #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"/>
+  <p><em>AI-powered editing in action</em></p>
+</div>
 
 ---
 
@@ -57,8 +58,10 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 
 ### 🎨 Visual Effects
 
-<!-- Add effect showcase image -->
-![Effects Showcase](./docs/effects-showcase.png)
+<div align="center" style="margin: 40px 0;">
+  <img src="./docs/images/chromakey.gif" alt="Chromakey Demo" width="800" style="border: 2px solid #333; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"/>
+  <p><em>Real-time chromakey with GPU acceleration</em></p>
+</div>
 
 ### 📤 Export & Cloud
 
@@ -66,27 +69,6 @@ CutOS is an **AI-first video editor** that understands natural language. Describ
 - Cloud storage with Supabase
 - Auto-save your projects
 - Multiple quality presets (Low/Medium/High)
-
----
-
-## 📸 Screenshots
-
-<!-- Add screenshots in /docs/images/ folder -->
-
-<div align="center">
-  <img src="./docs/images/editor-interface.png" alt="Editor Interface" width="800"/>
-  <p><em>Main editing interface with timeline and preview</em></p>
-</div>
-
-<div align="center">
-  <img src="./docs/images/ai-chat.png" alt="AI Chat" width="800"/>
-  <p><em>Natural language AI editing assistant</em></p>
-</div>
-
-<div align="center">
-  <img src="./docs/images/effects-panel.png" alt="Effects" width="800"/>
-  <p><em>Real-time effects with adjustable parameters</em></p>
-</div>
 
 ---
 
