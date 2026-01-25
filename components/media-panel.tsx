@@ -395,6 +395,47 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
   const handleMediaDragStart = useCallback((e: React.DragEvent, media: MediaFile) => {
     e.dataTransfer.setData("application/x-media-id", media.id)
     e.dataTransfer.effectAllowed = "copy"
+    
+    // Create a custom drag preview
+    const dragPreview = document.createElement('div')
+    dragPreview.style.cssText = `
+      position: absolute;
+      top: -1000px;
+      left: -1000px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, rgb(59, 130, 246), rgb(37, 99, 235));
+      color: white;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+      pointer-events: none;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 9999;
+    `
+    dragPreview.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+        <line x1="7" y1="2" x2="7" y2="22"></line>
+        <line x1="17" y1="2" x2="17" y2="22"></line>
+        <line x1="2" y1="12" x2="22" y2="12"></line>
+        <line x1="2" y1="7" x2="7" y2="7"></line>
+        <line x1="2" y1="17" x2="7" y2="17"></line>
+        <line x1="17" y1="17" x2="22" y2="17"></line>
+        <line x1="17" y1="7" x2="22" y2="7"></line>
+      </svg>
+      <span>📹 ${media.name}</span>
+    `
+    document.body.appendChild(dragPreview)
+    e.dataTransfer.setDragImage(dragPreview, 20, 20)
+    
+    // Clean up the preview after a short delay
+    setTimeout(() => {
+      document.body.removeChild(dragPreview)
+    }, 0)
   }, [])
 
   // Handle drag start for NLP search results (with specific time range)
@@ -405,6 +446,42 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
     e.dataTransfer.setData("application/x-clip-start", result.start.toString())
     e.dataTransfer.setData("application/x-clip-end", result.end.toString())
     e.dataTransfer.effectAllowed = "copy"
+    
+    // Create a custom drag preview for NLP results
+    const duration = result.end - result.start
+    const dragPreview = document.createElement('div')
+    dragPreview.style.cssText = `
+      position: absolute;
+      top: -1000px;
+      left: -1000px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, rgb(34, 197, 94), rgb(22, 163, 74));
+      color: white;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+      pointer-events: none;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 9999;
+    `
+    dragPreview.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.35-4.35"></path>
+      </svg>
+      <span>🎯 AI Match (${duration.toFixed(1)}s)</span>
+    `
+    document.body.appendChild(dragPreview)
+    e.dataTransfer.setDragImage(dragPreview, 20, 20)
+    
+    // Clean up the preview after a short delay
+    setTimeout(() => {
+      document.body.removeChild(dragPreview)
+    }, 0)
   }, [])
 
   // Handle preview of NLP search result
@@ -778,7 +855,7 @@ function MediaTab({ mediaFiles, onFilesAdded, onRemoveFile, projectId, onReindex
                         </div>
                         
                         {/* Thumbnail with play overlay */}
-                        <div className="relative w-16 h-10 rounded overflow-hidden bg-muted flex-shrink-0">
+                        <div className="relative w-16 h-10 rounded overflow-hidden bg-muted shrink-0">
                           {result.media?.thumbnail ? (
                             <img
                               src={result.media.thumbnail}
