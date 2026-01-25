@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Send, Mic, Check, AlertCircle, MessageSquarePlus, Zap, Loader2 } from "lucide-react"
 import { useEditor } from "./editor-context"
 import { useVideoAgent } from "@/lib/agent/use-agent"
+import { AutoEnhanceModal } from "./auto-enhance-modal"
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ function AgentTab() {
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [showNewChatDialog, setShowNewChatDialog] = useState(false)
+  const [showAutoEnhanceModal, setShowAutoEnhanceModal] = useState(false)
 
   // Auto-scroll to bottom when messages change or during streaming
   useEffect(() => {
@@ -210,10 +212,7 @@ function AgentTab() {
       <div className="border-b border-border p-3">
         <div className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Smart Enhance</div>
         <motion.button
-          onClick={() => {
-            const message = "Analyze my video timeline and automatically apply smart improvements. Look at all clips and suggest enhancements like: trimming dead air at the start/end, applying cinematic effects, removing green screens if present, improving pacing with strategic splits, and any other optimizations. Apply all suggested improvements automatically using your tools."
-            sendQuickAction(message)
-          }}
+          onClick={() => setShowAutoEnhanceModal(true)}
           disabled={isLoading || timelineClips.length === 0}
           className="w-full flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary/20 to-primary/10 border border-primary/30 px-3 py-2.5 text-[11px] font-medium text-primary hover:from-primary/30 hover:to-primary/20 hover:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
           whileHover={{ scale: isLoading || timelineClips.length === 0 ? 1 : 1.02 }}
@@ -229,9 +228,16 @@ function AgentTab() {
           <span>Auto Enhance Video</span>
         </motion.button>
         <p className="mt-1.5 text-[9px] text-muted-foreground/80 text-center">
-          AI analyzes and applies multiple improvements automatically
+          AI + Video RAG for smart enhancements
         </p>
       </div>
+
+      {/* Auto Enhance Modal */}
+      <AutoEnhanceModal
+        open={showAutoEnhanceModal}
+        onOpenChange={setShowAutoEnhanceModal}
+        onEnhance={(prompt) => sendQuickAction(prompt)}
+      />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">

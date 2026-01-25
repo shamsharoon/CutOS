@@ -254,7 +254,7 @@ export const videoEditingTools = {
   // Tool: Apply chromakey (green screen removal)
   applyChromakey: tool({
     description:
-      "Remove green screen (or any color) from a video clip, making it transparent. IMPORTANT: Before using this tool, you MUST verify and confirm which clip you're applying chromakey to by stating the clip's name/label and ID. Use this when the user wants to remove a green screen, blue screen, or any colored background from a video. You can enable/disable it, and optionally adjust the color to remove, similarity threshold, edge smoothness, and spill suppression. Always confirm the clip details before applying.",
+      "Remove green screen (or any color) from a video clip, making it transparent. Use this when the user wants to remove a green screen, blue screen, or any colored background from a video. You can enable/disable it, and optionally adjust the color to remove, similarity threshold, edge smoothness, and spill suppression.",
     inputSchema: applyChromakeyInput,
     execute: async (input: z.infer<typeof applyChromakeyInput>) => {
       return {
@@ -304,7 +304,7 @@ export const videoEditingTools = {
   // Tool: Create AI morph transition between clips
   createMorphTransition: tool({
     description:
-      "Create an AI-powered morph transition between two clips. This extracts the last frame from the first clip and the first frame from the second clip, then uses AI to generate a smooth morphing video that transitions between them. The generated transition video is automatically inserted on the timeline. Use this when the user wants to create a smooth transition or morph effect between two video clips.",
+      "Create an AI-powered morph transition between TWO SEQUENTIAL clips on the SAME track (the second clip must start right after the first clip ends - they must be adjacent, not overlapping). This extracts the last frame from the first clip and the first frame from the second clip, then uses AI to generate a smooth morphing video that transitions between them. The generated transition video is automatically inserted on the timeline between the two clips. CRITICAL: Only use this for clips that are next to each other on the same track. Do NOT use this for overlapping clips on different tracks.",
     inputSchema: createMorphTransitionInput,
     execute: async (input: z.infer<typeof createMorphTransitionInput>) => {
       return {

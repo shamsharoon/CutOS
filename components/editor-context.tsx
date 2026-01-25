@@ -81,6 +81,14 @@ interface EditorContextType {
   updateClip: (id: string, updates: Partial<TimelineClip>) => void
   removeClip: (id: string) => void
   splitClip: (clipId: string, splitTime: number) => void // Split a clip at the given timeline time (in seconds)
+  
+  // Timeline Zoom
+  zoomLevel: number // Zoom percentage (25% = zoomed out showing 10min, 500% = zoomed in)
+  setZoomLevel: (level: number) => void
+  zoomIn: () => void
+  zoomOut: () => void
+  zoomToFit: () => void
+  pixelsPerSecond: number // Dynamic pixels per second based on zoom level
 
   // Undo/Redo
   undo: () => void
@@ -167,6 +175,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showCaptions, setShowCaptions] = useState(true)
   const [captionStyle, setCaptionStyle] = useState<"classic" | "tiktok">("tiktok")
+  
+  // Timeline zoom (25% = 10min view, 100% = default, 500% = max zoom)
+  const [zoomLevel, setZoomLevel] = useState(100)
+  const pixelsPerSecond = (PIXELS_PER_SECOND * zoomLevel) / 100
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -240,6 +252,34 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const canUndo = historyState.canUndo
   const canRedo = historyState.canRedo
+  
+  // Zoom functions
+  const zoomIn = useCallback(() => {
+    setZoomLevel((prev) => Math.min(500, prev + 25))
+  }, [])
+  
+  const zoomOut = useCallback(() => {
+    setZoomLevel((prev) => Math.max(25, prev - 25))
+  }, [])
+  
+  const zoomToFit = useCallback(() => {
+    if (timelineClips.length === 0) {
+      setZoomLevel(100)
+      return
+    }
+    
+    // Find the rightmost clip end (in seconds)
+    const maxTime = Math.max(
+      ...timelineClips.map((clip) => (clip.startTime + clip.duration) / PIXELS_PER_SECOND)
+    )
+    
+    // Target: fit all clips in ~1000px viewport
+    // Calculate zoom level needed: targetWidth = maxTime * (PIXELS_PER_SECOND * zoom / 100)
+    // So: zoom = (targetWidth / (maxTime * PIXELS_PER_SECOND)) * 100
+    const targetViewportWidth = 1000
+    const requiredZoom = Math.max(25, Math.min(500, (targetViewportWidth / (maxTime * PIXELS_PER_SECOND)) * 100))
+    setZoomLevel(Math.round(requiredZoom / 25) * 25) // Round to nearest 25%
+  }, [timelineClips])
 
   // Copy clip
   const copyClip = useCallback((clipId: string) => {
@@ -687,8 +727,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     }
   }, [projectId, hasUnsavedChanges, saveProject])
 
-  // Convert current time to pixel position for timeline
-  const playheadPixels = currentTime * PIXELS_PER_SECOND
+  // Convert current time to pixel position for timeline (for visual rendering)
+  const playheadPixels = currentTime * pixelsPerSecond
 
   // Get video clips sorted by start time
   const sortedVideoClips = timelineClips
@@ -696,6 +736,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     .sort((a, b) => a.startTime - b.startTime)
 
   // Calculate timeline end time (end of last clip)
+  // Use base PIXELS_PER_SECOND since clip positions are stored in base pixels
   const timelineEndTime = sortedVideoClips.reduce((max, clip) => {
     const clipEnd = (clip.startTime + clip.duration) / PIXELS_PER_SECOND
     return Math.max(max, clipEnd)
@@ -718,11 +759,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   // Find clip under the playhead
   // When multiple clips overlap, prioritize the topmost track (V2 > V1 > A2 > A1)
+  // Convert currentTime to base pixels to compare with stored clip positions
   const tracks = ["V2", "V1", "A2", "A1"]
+  const playheadBasePixels = currentTime * PIXELS_PER_SECOND
   const clipsAtPlayhead = sortedVideoClips.filter(
     (clip) =>
-      playheadPixels >= clip.startTime &&
-      playheadPixels < clip.startTime + clip.duration
+      playheadBasePixels >= clip.startTime &&
+      playheadBasePixels < clip.startTime + clip.duration
   )
   
   // Sort clips by track (topmost first)
@@ -738,13 +781,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Calculate how far into the active clip we are (in seconds)
   // Calculate how far into the source media we should be
   // This accounts for both the position on the timeline AND the clip's mediaOffset (for split clips)
+  // Use base pixels for all calculations since clip positions are stored in base pixels
   const clipTimeOffset = activeClip
-    ? ((playheadPixels - activeClip.startTime) + activeClip.mediaOffset) / PIXELS_PER_SECOND
+    ? ((playheadBasePixels - activeClip.startTime) + activeClip.mediaOffset) / PIXELS_PER_SECOND
     : 0
   
   // Calculate how far into the background clip we are (in seconds)
   const backgroundClipTimeOffset = backgroundClip
-    ? ((playheadPixels - backgroundClip.startTime) + backgroundClip.mediaOffset) / PIXELS_PER_SECOND
+    ? ((playheadBasePixels - backgroundClip.startTime) + backgroundClip.mediaOffset) / PIXELS_PER_SECOND
     : 0
 
   // Determine preview media based on selection or active clip
@@ -858,6 +902,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         updateClip,
         removeClip,
         splitClip,
+        zoomLevel,
+        setZoomLevel,
+        zoomIn,
+        zoomOut,
+        zoomToFit,
+        pixelsPerSecond,
         undo,
         redo,
         canUndo,

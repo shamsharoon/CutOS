@@ -60,6 +60,8 @@ export async function POST(request: Request) {
     system: systemPrompt,
     messages: formattedMessages,
     tools: videoEditingTools,
+    maxSteps: 10, // Allow up to 10 tool calls per request
+    toolChoice: "auto", // Let the model decide when to use tools
   })
 
   return result.toUIMessageStreamResponse()

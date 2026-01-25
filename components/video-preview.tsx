@@ -243,6 +243,7 @@ export function VideoPreview() {
       if (!backgroundVideoRef.current || !backgroundClip || !isPlaying) return
       
       // Calculate expected time from current timeline position
+      // Use base PIXELS_PER_SECOND since clip positions are stored in base pixels
       const playheadPixels = currentTime * PIXELS_PER_SECOND
       const expectedTime = ((playheadPixels - backgroundClip.startTime) + backgroundClip.mediaOffset) / PIXELS_PER_SECOND
       const actualTime = backgroundVideoRef.current.currentTime

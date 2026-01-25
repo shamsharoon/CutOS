@@ -122,8 +122,10 @@ export function useVideoAgent() {
   // Handle a single tool result action
   const handleAction = useCallback(
     (action: AgentAction) => {
+      console.log("[Agent handleAction] Executing:", action.action, action.payload)
       switch (action.action) {
         case "SPLIT_CLIP": {
+          console.log("[Agent] Splitting clip:", action.payload.clipId, "at", action.payload.splitTimeSeconds)
           editor.splitClip(action.payload.clipId, action.payload.splitTimeSeconds)
           break
         }
@@ -162,7 +164,7 @@ export function useVideoAgent() {
           }
 
           if (trimEnd > 0) {
-            const trimEndPixels = trimEnd * PIXELS_PER_SECOND
+            const trimEndPixels = trimEnd * editor.pixelsPerSecond
             updates.duration = (updates.duration ?? clip.duration) - trimEndPixels
           }
 
@@ -229,6 +231,7 @@ export function useVideoAgent() {
 
         case "APPLY_EFFECT": {
           const targetClip = editor.timelineClips.find((c) => c.id === action.payload.clipId)
+          console.log("[Agent] Apply effect - Found clip:", !!targetClip, "Effect:", action.payload.effect)
           if (targetClip) {
             // Use DEFAULT_CLIP_EFFECTS fallback to ensure all effect properties are present
             const currentEffects = targetClip.effects ?? DEFAULT_CLIP_EFFECTS
@@ -239,6 +242,9 @@ export function useVideoAgent() {
                 preset: action.payload.effect as typeof currentEffects.preset,
               },
             })
+            console.log("[Agent] Effect applied successfully")
+          } else {
+            console.error("[Agent] Clip not found for effect:", action.payload.clipId)
           }
           break
         }
@@ -473,6 +479,7 @@ export function useVideoAgent() {
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
     transport,
+    maxSteps: 10, // Allow up to 10 chained tool calls per message
     onToolCall: ({ toolCall }) => {
       // In AI SDK v6, onToolCall fires when the tool INPUT is available
       // The tool executes server-side and we get the result
@@ -484,7 +491,9 @@ export function useVideoAgent() {
         input: Record<string, unknown>
       }
 
-      if (tc.type === "tool-input-available" && tc.toolName && tc.input) {
+      console.log("[Agent] Tool call received:", tc.type, tc.toolName, tc.input)
+
+      if (tc.toolName && tc.input) {
         // Skip if already processed
         if (processedToolCallsRef.current.has(tc.toolCallId)) {
           return
@@ -640,17 +649,22 @@ export function useVideoAgent() {
         if (action) {
           processedToolCallsRef.current.add(tc.toolCallId)
           try {
+            console.log("[Agent] Executing action:", action.action, action.payload)
             handleAction(action)
             // Mark as success
             toolInfo.status = "success"
             toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
+            console.log("[Agent] Action executed successfully:", action.action)
           } catch (err) {
             // Mark as error
+            console.error("[Agent] Action execution error:", err)
             toolInfo.status = "error"
             toolCallInfoRef.current.set(tc.toolCallId, { ...toolInfo })
           }
           // Force re-render to show updated status
           forceUpdate((n) => n + 1)
+        } else {
+          console.warn("[Agent] No action created for tool:", tc.toolName)
         }
       }
     },
@@ -738,6 +752,20 @@ export function useVideoAgent() {
     }
 
   }, [messages, handleAction])
+
+  // Auto-clear message history after each response completes
+  // This ensures the agent treats every request as fresh with no memory of previous actions
+  useEffect(() => {
+    if (status === "idle" && messages.length > 0) {
+      // Wait a brief moment for UI to update, then clear
+      const timer = setTimeout(() => {
+        setMessages([])
+        processedToolCallsRef.current.clear()
+        toolCallInfoRef.current.clear()
+      }, 500) // 0.5 second delay so user sees the response but clears quickly
+      return () => clearTimeout(timer)
+    }
+  }, [status, messages.length, setMessages])
 
   // Convert UIMessage[] to simpler format for display
   // Don't use useMemo - we want to recompute on every render to catch streaming updates

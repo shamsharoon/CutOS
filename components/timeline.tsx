@@ -32,6 +32,11 @@ export function Timeline() {
     copyClip,
     pasteClip,
     canPaste,
+    zoomLevel,
+    zoomIn,
+    zoomOut,
+    zoomToFit,
+    pixelsPerSecond,
   } = useEditor()
 
   // Editing actions
@@ -58,15 +63,15 @@ export function Timeline() {
   }
 
   // Local state for smooth playhead animation
-  const [localPlayheadPosition, setLocalPlayheadPosition] = useState(currentTime * PIXELS_PER_SECOND)
+  const [localPlayheadPosition, setLocalPlayheadPosition] = useState(currentTime * pixelsPerSecond)
   const animationRef = useRef<number | null>(null)
 
-  // Sync local position with context when not playing or when currentTime changes externally
+  // Sync local position with context when not playing or when currentTime/zoom changes
   useEffect(() => {
     if (!isPlaying) {
-      setLocalPlayheadPosition(currentTime * PIXELS_PER_SECOND)
+      setLocalPlayheadPosition(currentTime * pixelsPerSecond)
     }
-  }, [currentTime, isPlaying])
+  }, [currentTime, isPlaying, pixelsPerSecond])
 
   // Animate playhead smoothly during playback
   useEffect(() => {
@@ -80,7 +85,7 @@ export function Timeline() {
 
     const animate = () => {
       // Read current time from context and update local position
-      setLocalPlayheadPosition(currentTime * PIXELS_PER_SECOND)
+      setLocalPlayheadPosition(currentTime * pixelsPerSecond)
       animationRef.current = requestAnimationFrame(animate)
     }
 
@@ -92,7 +97,7 @@ export function Timeline() {
         animationRef.current = null
       }
     }
-  }, [isPlaying, currentTime])
+  }, [isPlaying, currentTime, pixelsPerSecond])
 
   const playheadPosition = localPlayheadPosition
 
@@ -103,24 +108,45 @@ export function Timeline() {
 
   const tracks = ["V2", "V1", "A2", "A1"]
 
-  const handleClipMouseDown = (e: React.MouseEvent, clipId: string) => {
+  const handleClipMouseDown = useCallback((e: React.MouseEvent, clipId: string) => {
+    e.preventDefault() // Prevent text selection and default drag behavior
     e.stopPropagation()
-    const rect = (e.target as HTMLElement).getBoundingClientRect()
-    setDragOffset(e.clientX - rect.left)
+    if (!timelineRef.current) return
+    
+    // Calculate offset relative to timeline, not the clip itself
+    const timelineRect = timelineRef.current.getBoundingClientRect()
+    const clip = timelineClips.find(c => c.id === clipId)
+    if (!clip) return
+    
+    // Calculate where the mouse is within the timeline (visual pixels)
+    const mouseXInTimeline = e.clientX - timelineRect.left - 96 // Subtract track label width
+    
+    // Calculate where the clip starts (visual pixels)
+    const clipVisualStart = (clip.startTime / PIXELS_PER_SECOND) * pixelsPerSecond
+    
+    // The drag offset is how far into the clip the user clicked (visual pixels)
+    setDragOffset(mouseXInTimeline - clipVisualStart)
     setDraggedClip(clipId)
     setSelectedClipId(clipId)
-  }
+  }, [timelineClips, pixelsPerSecond, setSelectedClipId])
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
     if (!draggedClip || !timelineRef.current) return
 
     const timelineRect = timelineRef.current.getBoundingClientRect()
-    const relativeX = e.clientX - timelineRect.left - dragOffset - 96 // Subtract track label width
+    const mouseXInTimeline = e.clientX - timelineRect.left - 96 // Subtract track label width
     const relativeY = e.clientY - timelineRect.top
+    
+    // Calculate the new position (visual pixels)
+    const relativeX = mouseXInTimeline - dragOffset
 
-      // Snap to grid (every 10px = 1 second)
-    const snappedX = Math.max(0, Math.round(relativeX / 10) * 10)
+      // Snap to grid based on zoom level (visual pixels)
+    const gridSize = pixelsPerSecond // 1 second grid at current zoom
+    const snappedVisualX = Math.max(0, Math.round(relativeX / gridSize) * gridSize)
+    
+    // Convert visual position back to base pixels for storage
+    const snappedX = (snappedVisualX / pixelsPerSecond) * PIXELS_PER_SECOND
 
     // Calculate which track the mouse is over
     // Track height is 48px (h-12), ruler is 24px (h-6)
@@ -153,7 +179,7 @@ export function Timeline() {
 
     updateClip(draggedClip, updates)
     },
-    [draggedClip, dragOffset, updateClip, timelineClips, tracks]
+    [draggedClip, dragOffset, updateClip, timelineClips, tracks, pixelsPerSecond]
     )
 
   const handleMouseUp = useCallback(() => {
@@ -163,11 +189,35 @@ export function Timeline() {
 
   useEffect(() => {
     if (draggedClip) {
+      // Use capture phase to ensure we always get the mouseup event
+      const handleMouseUpCapture = (e: MouseEvent) => {
+        handleMouseUp()
+      }
+      
+      // Handle Escape key to cancel drag
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          handleMouseUp()
+        }
+      }
+      
+      // Listen on both window and document to catch all mouseup events
       window.addEventListener("mousemove", handleMouseMove)
-      window.addEventListener("mouseup", handleMouseUp)
+      window.addEventListener("mouseup", handleMouseUpCapture, true) // Capture phase
+      document.addEventListener("mouseup", handleMouseUpCapture, true) // Also on document
+      
+      // Also clear drag state if mouse leaves the window
+      window.addEventListener("mouseleave", handleMouseUp)
+      
+      // Allow Escape key to cancel drag
+      window.addEventListener("keydown", handleEscape)
+      
       return () => {
         window.removeEventListener("mousemove", handleMouseMove)
-        window.removeEventListener("mouseup", handleMouseUp)
+        window.removeEventListener("mouseup", handleMouseUpCapture, true)
+        document.removeEventListener("mouseup", handleMouseUpCapture, true)
+        window.removeEventListener("mouseleave", handleMouseUp)
+        window.removeEventListener("keydown", handleEscape)
       }
     }
   }, [draggedClip, handleMouseMove, handleMouseUp])
@@ -208,7 +258,7 @@ export function Timeline() {
         // NLP search result with specific time range
         const clipStart = parseFloat(clipStartStr)
         const clipEnd = parseFloat(clipEndStr)
-        mediaOffset = clipStart * PIXELS_PER_SECOND // Convert seconds to pixels
+        mediaOffset = clipStart * PIXELS_PER_SECOND // Convert seconds to base pixels
         clipDuration = Math.max(80, (clipEnd - clipStart) * PIXELS_PER_SECOND)
         
         // Format time for label
@@ -263,10 +313,10 @@ export function Timeline() {
     const timelineRect = timelineRef.current.getBoundingClientRect()
     const relativeX = e.clientX - timelineRect.left
     if (relativeX >= 0) {
-      return Math.max(0, relativeX / PIXELS_PER_SECOND)
+      return Math.max(0, relativeX / pixelsPerSecond)
     }
     return null
-  }, [])
+  }, [pixelsPerSecond])
 
   // Handle scrubbing (drag to move playhead)
   const handleTimelineMouseDown = useCallback(
@@ -349,6 +399,38 @@ export function Timeline() {
       }
     }
   }, [isScrubbing, handleScrubMove, handleScrubEnd])
+
+  // Handle scroll wheel zoom on timeline
+  useEffect(() => {
+    const timelineElement = timelineRef.current
+    if (!timelineElement) return
+
+    const handleWheel = (e: WheelEvent) => {
+      // Check if Ctrl or Cmd is pressed (standard zoom gesture)
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        
+        // Determine zoom direction (negative deltaY = zoom in, positive = zoom out)
+        if (e.deltaY < 0) {
+          // Zoom in
+          if (zoomLevel < 500) {
+            zoomIn()
+          }
+        } else {
+          // Zoom out
+          if (zoomLevel > 25) {
+            zoomOut()
+          }
+        }
+      }
+    }
+
+    timelineElement.addEventListener('wheel', handleWheel, { passive: false })
+    
+    return () => {
+      timelineElement.removeEventListener('wheel', handleWheel)
+    }
+  }, [zoomLevel, zoomIn, zoomOut])
 
   const handleDeleteClip = useCallback(
     (e: React.MouseEvent, clipId: string) => {
@@ -453,17 +535,39 @@ export function Timeline() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
+          <motion.button 
+            onClick={zoomToFit}
+            className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            title="Zoom to fit all clips"
+          >
             Fit
-          </button>
+          </motion.button>
           <div className="flex items-center gap-1">
-            <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
+            <motion.button 
+              onClick={zoomOut}
+              disabled={zoomLevel <= 25}
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              whileHover={{ scale: zoomLevel > 25 ? 1.05 : 1 }}
+              whileTap={{ scale: zoomLevel > 25 ? 0.95 : 1 }}
+              title="Zoom out (max 10 minutes)"
+            >
               −
-            </button>
-            <div className="px-2 text-xs text-muted-foreground">100%</div>
-            <button className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
+            </motion.button>
+            <div className="px-2 text-xs text-muted-foreground font-mono min-w-[48px] text-center">
+              {zoomLevel}%
+            </div>
+            <motion.button 
+              onClick={zoomIn}
+              disabled={zoomLevel >= 500}
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              whileHover={{ scale: zoomLevel < 500 ? 1.05 : 1 }}
+              whileTap={{ scale: zoomLevel < 500 ? 0.95 : 1 }}
+              title="Zoom in (max detail)"
+            >
               +
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>
@@ -491,7 +595,9 @@ export function Timeline() {
         {/* Timeline Grid */}
         <div
           ref={timelineRef}
-          className={`relative flex-1 overflow-x-auto scrollbar-thin select-none ${isScrubbing ? "cursor-ew-resize" : ""}`}
+          className={`relative flex-1 overflow-x-auto scrollbar-thin select-none ${
+            isScrubbing ? "cursor-ew-resize" : draggedClip ? "cursor-grabbing" : ""
+          }`}
           onMouseDown={handleTimelineMouseDown}
           style={{ 
             userSelect: 'none',
@@ -500,15 +606,29 @@ export function Timeline() {
             msUserSelect: 'none'
           } as React.CSSProperties}
         >
-          {/* Time Ruler - 80px = 8 seconds at 10px/second */}
+          {/* Time Ruler - Dynamic based on zoom level */}
           <div className="sticky top-0 z-10 flex h-6 border-b border-border bg-card">
-            {Array.from({ length: 60 }).map((_, i) => (
-              <div key={i} className="shrink-0 border-r border-border" style={{ width: "80px" }}>
-                <div className="px-2 text-[10px] text-muted-foreground">
-                  {formatRulerTime(i * 8)}
+            {(() => {
+              // Calculate ruler segments based on zoom
+              // At 100% zoom: 10px/sec, show every 8 seconds (80px segments)
+              // At 25% zoom (10 min view): 2.5px/sec, show every 30 seconds
+              // At 500% zoom: 50px/sec, show every 2 seconds
+              const secondsPerSegment = zoomLevel <= 50 ? 30 : zoomLevel <= 100 ? 8 : zoomLevel <= 200 ? 4 : 2
+              const segmentWidth = secondsPerSegment * pixelsPerSecond
+              
+              // Always show at least up to 10 minutes (600 seconds) so timeline is usable
+              // Users can zoom out to see full 10 minutes, or zoom in to see detail
+              const maxTimelineSeconds = 600 // 10 minutes max
+              const numSegments = Math.ceil(maxTimelineSeconds / secondsPerSegment)
+              
+              return Array.from({ length: numSegments }).map((_, i) => (
+                <div key={i} className="shrink-0 border-r border-border" style={{ width: `${segmentWidth}px` }}>
+                  <div className="px-2 text-[10px] text-muted-foreground">
+                    {formatRulerTime(i * secondsPerSegment)}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            })()}
           </div>
 
           {/* Tracks Content */}
@@ -528,28 +648,38 @@ export function Timeline() {
                 onDragLeave={handleTrackDragLeave}
                 onDrop={(e) => handleTrackDrop(e, track)}
               >
-                {/* Grid lines */}
+                {/* Grid lines - sync with ruler */}
                 <div className="absolute inset-0 flex pointer-events-none">
-                  {Array.from({ length: 60 }).map((_, i) => (
-                    <div key={i} className="shrink-0 border-r border-border/30" style={{ width: "80px" }} />
-                  ))}
+                  {(() => {
+                    const secondsPerSegment = zoomLevel <= 50 ? 30 : zoomLevel <= 100 ? 8 : zoomLevel <= 200 ? 4 : 2
+                    const segmentWidth = secondsPerSegment * pixelsPerSecond
+                    const maxTimelineSeconds = 600 // Match ruler
+                    const numSegments = Math.ceil(maxTimelineSeconds / secondsPerSegment)
+                    
+                    return Array.from({ length: numSegments }).map((_, i) => (
+                      <div key={i} className="shrink-0 border-r border-border/30" style={{ width: `${segmentWidth}px` }} />
+                    ))
+                  })()}
                 </div>
 
                 {timelineClips
                   .filter((clip) => clip.trackId === track)
                   .map((clip) => {
                     const media = mediaFiles.find((m) => m.id === clip.mediaId)
+                    // Convert stored base pixels to visual pixels based on zoom
+                    const visualStartTime = (clip.startTime / PIXELS_PER_SECOND) * pixelsPerSecond
+                    const visualDuration = (clip.duration / PIXELS_PER_SECOND) * pixelsPerSecond
                     return (
                     <div
                       key={clip.id}
                         data-clip-id={clip.id}
                       onMouseDown={(e) => handleClipMouseDown(e, clip.id)}
-                        className={`absolute z-10 mx-1 my-1.5 h-9 rounded border cursor-move overflow-hidden group ${
+                        className={`absolute z-10 mx-1 my-1.5 h-9 rounded border overflow-hidden group transition-opacity ${
                         clip.type === "video" ? "bg-primary/80 border-primary" : "bg-chart-2/80 border-chart-2"
-                        } ${draggedClip === clip.id ? "opacity-70" : ""} ${
+                        } ${draggedClip === clip.id ? "opacity-70 cursor-grabbing z-50" : "cursor-grab"} ${
                           selectedClipId === clip.id ? "ring-2 ring-white" : ""
                         }`}
-                      style={{ left: `${clip.startTime}px`, width: `${clip.duration}px` }}
+                      style={{ left: `${visualStartTime}px`, width: `${visualDuration}px` }}
                     >
                       {clip.type === "video" ? (
                           <div className="flex h-full items-center gap-1.5 px-2">
