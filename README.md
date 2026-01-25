@@ -1,8 +1,6 @@
 <div align="center">
   <img src="./public/cutos.svg" alt="CutOS Logo" width="200"/>
-  
-  # CutOS
-  
+    
   **Edit videos at the speed of thought**
   
   [![Next.js](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
