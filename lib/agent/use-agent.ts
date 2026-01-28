@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
-import { useCallback, useEffect, useRef, useState, useMemo } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
   useEditor,
@@ -94,6 +94,7 @@ export function useVideoAgent() {
   const pendingActionsRef = useRef<AgentAction[]>([])
   const processedToolCallsRef = useRef<Set<string>>(new Set())
   const toolCallInfoRef = useRef<Map<string, ToolCallInfo>>(new Map())
+  const timelineStateRef = useRef<TimelineState | null>(null) // Store latest timeline state
   const [input, setInput] = useState("")
   // Force re-render when tool calls complete
   const [, forceUpdate] = useState(0)
@@ -120,6 +121,11 @@ export function useVideoAgent() {
       selectedClipId: editor.selectedClipId,
     }
   }, [editor.timelineClips, editor.mediaFiles, editor.currentTime, editor.selectedClipId])
+
+  // Keep timeline state ref updated with latest state
+  useEffect(() => {
+    timelineStateRef.current = getTimelineContext()
+  }, [getTimelineContext])
 
   // Handle a single tool result action
   const handleAction = useCallback(
@@ -561,15 +567,14 @@ export function useVideoAgent() {
     }
   }, [handleAction])
 
-  // Create transport that includes timeline state in body
-  const transport = useMemo(() => {
-    return new DefaultChatTransport({
-      api: "/api/agent",
-      body: () => ({
-        timelineState: getTimelineContext(),
-      }),
-    })
-  }, [getTimelineContext])
+  // Create transport for API communication
+  // Body function reads from ref which is kept updated with latest timeline state
+  const transport = new DefaultChatTransport({
+    api: "/api/agent",
+    body: () => ({
+      timelineState: timelineStateRef.current || getTimelineContext(),
+    }),
+  })
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
     transport,

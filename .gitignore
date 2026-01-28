@@ -44,4 +44,7 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Claude Code
+CLAUDE.md
+
 
