@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "./auth-provider"
 import { Loader2, Film, ArrowRight } from "lucide-react"
-import { allowSignupFlag } from "@/lib/flags"
 
 interface AuthModalProps {
   open: boolean
@@ -23,7 +22,8 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
   const [error, setError] = useState<string | null>(null)
   
   const { signIn, signUp } = useAuth()
-  const allowSignup = allowSignupFlag.value ?? false
+  // Feature flag to control signup during beta - default is false (disabled)
+  const allowSignup = process.env.NEXT_PUBLIC_ENABLE_SIGNUP === 'true'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
