@@ -336,7 +336,7 @@ export function WelcomeScreen() {
               viewport={{ once: true }}
               className="text-center text-xs text-neutral-600 uppercase tracking-widest"
             >
-              Trusted by teams at
+              Trusted by Engineers from
             </motion.p>
           </div>
 
