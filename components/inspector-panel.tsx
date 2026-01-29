@@ -32,6 +32,7 @@ function AgentTab() {
   const audioChunksRef = useRef<Blob[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null)
   const [showNewChatDialog, setShowNewChatDialog] = useState(false)
   const [showAutoEnhanceModal, setShowAutoEnhanceModal] = useState(false)
 
@@ -40,11 +41,20 @@ function AgentTab() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, status])
 
+  // Auto-dismiss transcription error after 5 seconds
+  useEffect(() => {
+    if (transcriptionError) {
+      const timer = setTimeout(() => setTranscriptionError(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [transcriptionError])
+
   const handleQuickAction = (action: string) => {
     sendQuickAction(action)
   }
 
   const startRecording = async () => {
+    setTranscriptionError(null) // Clear any previous error
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream, {
@@ -115,7 +125,7 @@ function AgentTab() {
           }
         } catch (error) {
           console.error('Transcription error:', error)
-          alert(error instanceof Error ? error.message : 'Failed to transcribe audio')
+          setTranscriptionError(error instanceof Error ? error.message : 'Failed to transcribe audio')
         } finally {
           setIsTranscribing(false)
         }
@@ -126,7 +136,7 @@ function AgentTab() {
       setIsRecording(true)
     } catch (error) {
       console.error('Failed to start recording:', error)
-      alert('Failed to access microphone. Please check permissions.')
+      setTranscriptionError('Failed to access microphone. Please check permissions.')
     }
   }
 
@@ -547,6 +557,26 @@ function AgentTab() {
                 <Loader2 className="h-3 w-3" />
               </motion.div>
               <span>Transcribing audio...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {transcriptionError && (
+            <motion.div
+              className="mt-2 flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-[10px] text-destructive"
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+            >
+              <AlertCircle className="h-3 w-3 flex-shrink-0" />
+              <span className="flex-1">{transcriptionError}</span>
+              <button
+                onClick={() => setTranscriptionError(null)}
+                className="text-destructive/60 hover:text-destructive transition-colors"
+              >
+                ✕
+              </button>
             </motion.div>
           )}
         </AnimatePresence>

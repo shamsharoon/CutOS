@@ -325,6 +325,12 @@ export function VideoPreview() {
       isPreloadedRef.current = false
       nextClipIdRef.current = null
 
+      // Pause the inactive video to prevent audio overlap
+      const inactiveVideoRef = useNextVideo ? videoRef : nextVideoRef
+      if (inactiveVideoRef.current && !inactiveVideoRef.current.paused) {
+        inactiveVideoRef.current.pause()
+      }
+
       // For non-sequential changes, update the current video normally
       if (currentVideoRef.current.src !== previewMedia.objectUrl) {
         currentVideoRef.current.src = previewMedia.objectUrl
@@ -339,6 +345,28 @@ export function VideoPreview() {
 
       if (isPlaying) {
         currentVideoRef.current.play().catch(() => { })
+      } else {
+        // When not playing, draw frame to canvas after video loads
+        const drawFrame = () => {
+          const video = currentVideoRef.current
+          const canvas = seamlessCanvasRef.current
+          if (!video || !canvas || video.readyState < 2) return
+
+          const ctx = canvas.getContext('2d', { alpha: false })
+          if (!ctx) return
+
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth
+            canvas.height = video.videoHeight
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        }
+        // Wait for video to be ready, then draw
+        if (currentVideoRef.current.readyState >= 2) {
+          setTimeout(drawFrame, 50)
+        } else {
+          currentVideoRef.current.addEventListener('canplay', drawFrame, { once: true })
+        }
       }
     }
   }, [activeClip?.id, previewMedia, clipTimeOffset, isPlaying, useNextVideo, sortedVideoClips])
@@ -421,7 +449,7 @@ export function VideoPreview() {
     return () => clearInterval(syncInterval)
   }, [backgroundClip, isPlaying, isSeeking, currentTime])
 
-  // Seek video when scrubbing (not playing)
+  // Seek video when scrubbing (not playing) and draw frame to canvas
   useEffect(() => {
     const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
     if (!currentVideoRef.current || !activeClip || !previewMedia || isPlaying) return
@@ -435,6 +463,29 @@ export function VideoPreview() {
     if (clipTimeOffset >= 0 && clipTimeOffset <= videoDuration) {
       currentVideoRef.current.currentTime = clipTimeOffset
     }
+
+    // Draw current frame to canvas when paused (since render loop only runs during playback)
+    const drawFrameToCanvas = () => {
+      const video = currentVideoRef.current
+      const canvas = seamlessCanvasRef.current
+      if (!video || !canvas || video.readyState < 2) return
+
+      const ctx = canvas.getContext('2d', { alpha: false })
+      if (!ctx) return
+
+      // Set canvas size to match video
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+      }
+
+      // Draw current frame
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    }
+
+    // Draw after a small delay to ensure video has seeked
+    const timeoutId = setTimeout(drawFrameToCanvas, 50)
+    return () => clearTimeout(timeoutId)
   }, [clipTimeOffset, activeClip, previewMedia, isPlaying, useNextVideo])
 
   // Keep video in sync during playback
@@ -455,16 +506,45 @@ export function VideoPreview() {
   // Handle play/pause state changes
   useEffect(() => {
     const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    const inactiveVideoRef = useNextVideo ? videoRef : nextVideoRef
     if (!currentVideoRef.current || !previewMedia) return
 
     if (isPlaying) {
-      currentVideoRef.current.play().catch(() => {
-        setIsPlaying(false)
-      })
+      // Pause inactive video to prevent audio overlap
+      if (inactiveVideoRef.current && !inactiveVideoRef.current.paused) {
+        inactiveVideoRef.current.pause()
+      }
+
+      // If video is ready, play immediately
+      // Otherwise, wait for it to be ready (handles clip transitions where source just changed)
+      const video = currentVideoRef.current
+      const tryPlay = () => {
+        video.play().catch((err) => {
+          // Only pause if it's a user interaction error, not a loading error
+          // AbortError happens when play is interrupted by pause or source change - ignore it
+          if (err.name !== 'AbortError' && err.name !== 'NotSupportedError') {
+            console.warn("Play failed:", err.name, err.message)
+            setIsPlaying(false)
+          }
+        })
+      }
+
+      if (video.readyState >= 3) {
+        // Video has enough data to play
+        tryPlay()
+      } else {
+        // Wait for video to be ready, then play
+        const handleCanPlay = () => {
+          if (isPlaying) tryPlay()
+        }
+        video.addEventListener('canplay', handleCanPlay, { once: true })
+        // Cleanup if effect re-runs before canplay fires
+        return () => video.removeEventListener('canplay', handleCanPlay)
+      }
     } else {
       currentVideoRef.current.pause()
     }
-  }, [isPlaying, previewMedia, setIsPlaying])
+  }, [isPlaying, previewMedia, setIsPlaying, useNextVideo])
 
   // Handle play/pause for background video
   useEffect(() => {
@@ -479,12 +559,33 @@ export function VideoPreview() {
     }
   }, [isPlaying, backgroundMedia, chromakeyEnabled])
 
-  // Update duration when video metadata loads
+  // Update duration when video metadata loads and draw initial frame
   const handleLoadedMetadata = useCallback(() => {
     const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
     if (currentVideoRef.current) {
       setDuration(currentVideoRef.current.duration)
     }
+  }, [useNextVideo])
+
+  // Draw frame to canvas (ensures preview shows immediately when video is ready)
+  // This is called when video can play, and also during playback to ensure first frame is drawn
+  const drawFrameToCanvas = useCallback(() => {
+    const currentVideoRef = useNextVideo ? nextVideoRef : videoRef
+    const video = currentVideoRef.current
+    const canvas = seamlessCanvasRef.current
+    if (!video || !canvas || video.readyState < 2) return
+
+    const ctx = canvas.getContext('2d', { alpha: false })
+    if (!ctx) return
+
+    // Set canvas size to match video
+    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+    }
+
+    // Draw current frame
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
   }, [useNextVideo])
 
   // Capture thumbnail from canvas
@@ -512,13 +613,16 @@ export function VideoPreview() {
     }
   }, [setProjectThumbnail, thumbnailCaptured])
 
-  // Capture thumbnail when canvas has content
+  // Capture thumbnail and draw frame when video can play
   const handleCanPlay = useCallback(() => {
+    // Draw frame to canvas so preview shows immediately (even during playback)
+    drawFrameToCanvas()
+
     if (!thumbnailCaptured) {
       // Small delay to ensure canvas has rendered a frame
       setTimeout(() => captureThumbnail(), 200)
     }
-  }, [captureThumbnail, thumbnailCaptured])
+  }, [captureThumbnail, thumbnailCaptured, drawFrameToCanvas])
 
   // Initialize chromakey processor when canvas is available
   useEffect(() => {
@@ -1003,11 +1107,12 @@ export function VideoPreview() {
                     filter: backgroundFilterString || undefined,
                     zIndex: 0,
                   }}
-                  muted={false}
+                  muted={true}
                   playsInline
                 />
               )}
               {/* Hidden video elements - used as source for canvas rendering */}
+              {/* Only the active video plays audio, the other is muted for preloading */}
               <video
                 ref={videoRef}
                 key={`primary-${previewMedia.id}`}
@@ -1016,7 +1121,7 @@ export function VideoPreview() {
                 style={{ display: 'none' }}
                 onLoadedMetadata={handleLoadedMetadata}
                 onCanPlay={handleCanPlay}
-                muted={false}
+                muted={useNextVideo}
                 playsInline
               />
               <video
@@ -1025,7 +1130,7 @@ export function VideoPreview() {
                 src={previewMedia.objectUrl}
                 crossOrigin="anonymous"
                 style={{ display: 'none' }}
-                muted={false}
+                muted={!useNextVideo}
                 playsInline
               />
               {/* Canvas for seamless playback - draws from active video */}

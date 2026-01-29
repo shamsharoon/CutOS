@@ -85,7 +85,7 @@ type VideoFrameCallbackMetadata = {
 }
 
 export function ExportModal({ open, onOpenChange }: ExportModalProps) {
-  const { sortedVideoClips, mediaFiles, timelineEndTime } = useEditor()
+  const { sortedVideoClips, mediaFiles } = useEditor()
 
   const [format, setFormat] = useState<ExportFormat>("webm")
   const [quality, setQuality] = useState<ExportQuality>("medium")
@@ -99,10 +99,9 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
   // Keep a ref to the latest sortedVideoClips to avoid stale closure issues
   // This ensures handleExport always uses the most current clip data
+  // Update synchronously during render (not via useEffect which runs after render)
   const sortedVideoClipsRef = useRef(sortedVideoClips)
-  useEffect(() => {
-    sortedVideoClipsRef.current = sortedVideoClips
-  }, [sortedVideoClips])
+  sortedVideoClipsRef.current = sortedVideoClips
 
   // Reset state when modal opens
   useEffect(() => {
@@ -144,8 +143,15 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Sort clips by start time
     const clips = [...currentClips].sort((a, b) => a.startTime - b.startTime)
 
+    // Calculate timeline end time from the clips we're actually exporting
+    // This ensures consistency and avoids stale closure values
+    const exportEndTime = clips.reduce((max, clip) => {
+      const clipEnd = (clip.startTime + clip.duration) / PIXELS_PER_SECOND
+      return Math.max(max, clipEnd)
+    }, 0)
+
     // Debug: Log clip effects summary at export start
-    console.log("[Export] Starting export with", clips.length, "clips:")
+    console.log("[Export] Starting export with", clips.length, "clips, duration:", exportEndTime, "seconds")
     clips.forEach((c, i) => {
       const effects = c.effects ?? DEFAULT_CLIP_EFFECTS
       console.log(`  [${i + 1}] ${c.label}: preset=${effects.preset}, brightness=${effects.brightness}%, contrast=${effects.contrast}%, blur=${effects.blur}px`)
@@ -157,10 +163,28 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     try {
       for (const clip of clips) {
         const media = mediaFiles.find(m => m.id === clip.mediaId)
-        if (!media) continue
+        if (!media) {
+          console.warn(`[Export] Media not found for clip: ${clip.id}`)
+          continue
+        }
+
+        if (!media.objectUrl && !media.storageUrl) {
+          console.warn(`[Export] No URL available for media: ${media.name}`)
+          continue
+        }
+
+        // Prefer storageUrl (Supabase) over objectUrl (might be blob URL)
+        // Blob URLs can become invalid and don't work well with crossOrigin
+        const videoUrl = media.storageUrl || media.objectUrl
+
+        console.log(`[Export] Loading video for clip: ${clip.label}`, {
+          usingUrl: videoUrl?.substring(0, 100),
+          objectUrl: media.objectUrl?.substring(0, 100),
+          storageUrl: media.storageUrl?.substring(0, 100),
+          isBlob: media.objectUrl?.startsWith('blob:'),
+        })
 
         const video = document.createElement("video")
-        video.src = media.objectUrl
         video.muted = true
         video.playsInline = true
         video.preload = "auto"
@@ -168,8 +192,34 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
         // Wait for video to be fully loaded
         await new Promise<void>((resolve, reject) => {
-          video.oncanplaythrough = () => resolve()
-          video.onerror = () => reject(new Error(`Failed to load video: ${media.name}`))
+          const timeoutId = setTimeout(() => {
+            reject(new Error(`Timeout loading video: ${media.name}`))
+          }, 30000) // 30 second timeout
+
+          video.oncanplaythrough = () => {
+            clearTimeout(timeoutId)
+            console.log(`[Export] Video loaded: ${media.name}`)
+            resolve()
+          }
+          video.onerror = () => {
+            clearTimeout(timeoutId)
+            // Get detailed error info from MediaError
+            const mediaError = video.error
+            const errorMessages: Record<number, string> = {
+              1: "MEDIA_ERR_ABORTED - fetching process aborted",
+              2: "MEDIA_ERR_NETWORK - network error while downloading",
+              3: "MEDIA_ERR_DECODE - error decoding media",
+              4: "MEDIA_ERR_SRC_NOT_SUPPORTED - media format not supported or URL invalid",
+            }
+            const errorCode = mediaError?.code ?? 0
+            const errorDetail = errorMessages[errorCode] || `Unknown error (code: ${errorCode})`
+            console.error(`[Export] Video load error for ${media.name}: ${errorDetail}`, {
+              url: videoUrl?.substring(0, 100),
+              mediaError,
+            })
+            reject(new Error(`Failed to load video: ${media.name} - ${errorDetail}`))
+          }
+          video.src = videoUrl
           video.load()
         })
 
@@ -184,7 +234,19 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
         videoElements.set(clip.id, video)
       }
+
+      // Check if all clips have videos loaded
+      const missingClips = clips.filter(c => !videoElements.has(c.id))
+      if (missingClips.length > 0) {
+        console.warn(`[Export] Missing videos for clips:`, missingClips.map(c => c.label))
+        if (videoElements.size === 0) {
+          throw new Error("No videos could be loaded for export")
+        }
+      }
+
+      console.log(`[Export] Successfully loaded ${videoElements.size}/${clips.length} videos`)
     } catch (e) {
+      console.error("[Export] Failed to load videos:", e)
       setError(e instanceof Error ? e.message : "Failed to load videos")
       setIsExporting(false)
       return
@@ -258,9 +320,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     recorder.start(100)
 
     // Track export state
-    let currentClipIndex = -1 // Start at -1 so first clip triggers initialization
     let exportStartTime = performance.now()
-    let activeVideo: HTMLVideoElement | null = null
 
     // Track logged clips to avoid flooding console
     const loggedClips = new Set<string>()
@@ -283,17 +343,18 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }
     }
 
-    // Helper to find all clips at a given timeline time, sorted by track (topmost first)
+    // Helper to find all clips at a given timeline time, sorted by track
+    // Returns clips sorted for drawing order (bottom to top): A1, A2, V1, V2
     const findClipsAtTime = (timelineTime: number): TimelineClip[] => {
       const timePixels = timelineTime * PIXELS_PER_SECOND
       const clipsAtTime = clips.filter(c => {
         return timePixels >= c.startTime && timePixels < c.startTime + c.duration
       })
-      // Sort by track - V2 > V1 > A2 > A1 (topmost first)
-      const trackOrder = ["V2", "V1", "A2", "A1"]
+      // Sort by track for drawing order - bottom first (A1 < A2 < V1 < V2)
+      const trackDrawOrder = ["A1", "A2", "V1", "V2"]
       return clipsAtTime.sort((a, b) => {
-        const aIndex = trackOrder.indexOf(a.trackId)
-        const bIndex = trackOrder.indexOf(b.trackId)
+        const aIndex = trackDrawOrder.indexOf(a.trackId)
+        const bIndex = trackDrawOrder.indexOf(b.trackId)
         return aIndex - bIndex
       })
     }
@@ -439,23 +500,14 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       return (performance.now() - exportStartTime) / 1000
     }
 
-    // Find active clip at given timeline time
-    const findActiveClip = (timelineTime: number) => {
-      for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i]
-        const clipStart = clip.startTime / PIXELS_PER_SECOND
-        const clipEnd = clipStart + (clip.duration / PIXELS_PER_SECOND)
-        if (timelineTime >= clipStart && timelineTime < clipEnd) {
-          return { clip, index: i }
-        }
-      }
-      return null
-    }
+    // Track which videos are currently active for audio management
+    const activeVideoIds = new Set<string>()
 
     // Main render loop using requestAnimationFrame with explicit time sync
     const renderLoop = async () => {
       if (abortRef.current) {
-        if (activeVideo) activeVideo.pause()
+        // Pause all videos
+        videoElements.forEach(video => video.pause())
         recorder.stop()
         return
       }
@@ -463,66 +515,116 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const timelineTime = getTimelineTime()
 
       // Check if export is complete
-      if (timelineTime >= timelineEndTime) {
-        if (activeVideo) activeVideo.pause()
+      if (timelineTime >= exportEndTime) {
+        videoElements.forEach(video => video.pause())
         recorder.stop()
         return
       }
 
       // Update progress
-      setProgress(Math.round((timelineTime / timelineEndTime) * 100))
+      setProgress(Math.round((timelineTime / exportEndTime) * 100))
 
-      // Find and draw active clip
-      const activeClipInfo = findActiveClip(timelineTime)
+      // Find ALL clips at the current time, sorted for drawing (bottom to top)
+      const clipsAtTime = findClipsAtTime(timelineTime)
 
-      if (activeClipInfo) {
-        const { clip, index } = activeClipInfo
-        const video = videoElements.get(clip.id)
+      if (clipsAtTime.length > 0) {
+        // Clear canvas once before drawing all layers
+        ctx.fillStyle = "#000000"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        if (video && video.readyState >= 2) {
+        // Track which clips are currently active
+        const newActiveVideoIds = new Set<string>()
+
+        // Draw each clip in order (bottom to top)
+        for (const clip of clipsAtTime) {
+          const video = videoElements.get(clip.id)
+          if (!video || video.readyState < 2) continue
+
+          newActiveVideoIds.add(clip.id)
+
           // Calculate expected video position
           const clipStart = clip.startTime / PIXELS_PER_SECOND
           const mediaOffset = clip.mediaOffset / PIXELS_PER_SECOND
           const expectedVideoTime = mediaOffset + (timelineTime - clipStart)
 
-          // Check if we need to switch clips or sync position
-          const needsSwitch = index !== currentClipIndex
+          // Check if we need to sync position
           const drift = Math.abs(video.currentTime - expectedVideoTime)
-          const needsSync = drift > 0.1 // Sync if drifted more than 100ms
-
-          if (needsSwitch || needsSync) {
-            // Pause previous video if switching
-            if (needsSwitch && activeVideo && activeVideo !== video) {
-              activeVideo.pause()
-            }
-
-            currentClipIndex = index
-            activeVideo = video
-
-            // Sync video to correct position
+          if (drift > 0.1) {
             video.currentTime = Math.max(mediaOffset, Math.min(expectedVideoTime, video.duration - 0.1))
+          }
 
-            // Start/resume playback
-            if (video.paused) {
-              try {
-                await video.play()
-              } catch (e) {
-                console.warn("Play failed:", e)
-              }
+          // Start/resume playback if needed
+          if (video.paused) {
+            try {
+              await video.play()
+            } catch (e) {
+              console.warn("Play failed for clip:", clip.id, e)
             }
           }
 
-          drawFrame(video, clip, timelineTime)
+          // Check if this clip has chromakey enabled
+          const effects = clip.effects ?? DEFAULT_CLIP_EFFECTS
+          if (effects.chromakey?.enabled && chromakeyProcessor) {
+            // For chromakey, the background is already drawn by previous clips
+            // Just draw this clip with chromakey (transparency)
+            if (chromakeyProcessor.isReady()) {
+              const chromakeyOptions: ChromakeyOptions = {
+                keyColor: effects.chromakey?.keyColor ?? "#00FF00",
+                similarity: effects.chromakey?.similarity ?? 0.4,
+                smoothness: effects.chromakey?.smoothness ?? 0.1,
+                spill: effects.chromakey?.spill ?? 0.3,
+              }
+
+              chromakeyProcessor.processFrame(video, chromakeyOptions)
+
+              const { drawX, drawY, drawWidth, drawHeight, transform } = getDrawParams(video, clip)
+              ctx.save()
+              const filterString = buildFilterString(effects)
+              ctx.filter = filterString || "none"
+              ctx.globalAlpha = transform.opacity / 100
+              try {
+                ctx.drawImage(chromakeyCanvas, drawX, drawY, drawWidth, drawHeight)
+              } catch (e) {
+                console.warn("Chromakey draw error:", e)
+              }
+              ctx.restore()
+            }
+          } else {
+            // Draw without chromakey (don't clear canvas - we're layering)
+            drawVideoLayer(video, clip, false)
+          }
+
+          // Log clip rendering once
+          if (!loggedClips.has(clip.id)) {
+            console.log("[Export] Rendering clip:", clip.label, "on track", clip.trackId)
+            loggedClips.add(clip.id)
+          }
         }
+
+        // Pause videos that are no longer active
+        for (const clipId of activeVideoIds) {
+          if (!newActiveVideoIds.has(clipId)) {
+            const video = videoElements.get(clipId)
+            if (video && !video.paused) {
+              video.pause()
+            }
+          }
+        }
+
+        // Update active video set
+        activeVideoIds.clear()
+        newActiveVideoIds.forEach(id => activeVideoIds.add(id))
+
       } else {
-        // No clip at this time, draw black
+        // No clips at this time, draw black
         ctx.fillStyle = "#000000"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        // Pause active video if we're in a gap
-        if (activeVideo && !activeVideo.paused) {
-          activeVideo.pause()
-        }
+        // Pause all videos if we're in a gap
+        videoElements.forEach(video => {
+          if (!video.paused) video.pause()
+        })
+        activeVideoIds.clear()
       }
 
       // Schedule next frame
@@ -573,7 +675,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }
     }
 
-  }, [mediaFiles, timelineEndTime, quality])
+  }, [mediaFiles, quality])
 
   const handleCancel = () => {
     if (isExporting) {
