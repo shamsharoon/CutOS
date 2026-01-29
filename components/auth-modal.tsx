@@ -22,6 +22,8 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
   const [error, setError] = useState<string | null>(null)
   
   const { signIn, signUp } = useAuth()
+  // Feature flag to control signup during beta - default is false (disabled)
+  const allowSignup = process.env.NEXT_PUBLIC_ENABLE_SIGNUP === 'true'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,7 +39,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
           onOpenChange(false)
           onSuccess?.()
         }
-      } else {
+      } else if (mode === "signup" && allowSignup) {
         const { error } = await signUp(email, password, name)
         if (error) {
           setError(error.message)
@@ -46,6 +48,9 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
           setMode("signin")
           setError("Check your email to confirm your account!")
         }
+      } else {
+        // Signup not allowed
+        setError("Sign up is currently disabled. Beta access only.")
       }
     } catch {
       setError("Something went wrong. Please try again.")
@@ -79,7 +84,7 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
         {/* Form */}
         <form onSubmit={handleSubmit} className="px-8 pb-8 space-y-4">
           {/* Name field for signup */}
-          {mode === "signup" && (
+          {mode === "signup" && allowSignup && (
             <Input
               type="text"
               placeholder="Name"
@@ -137,38 +142,44 @@ export function AuthModal({ open, onOpenChange, onSuccess }: AuthModalProps) {
             )}
           </Button>
 
-          {/* Toggle mode */}
-          <p className="text-center text-sm text-muted-foreground pt-2">
-            {mode === "signin" ? (
-              <>
-                Don't have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode("signup")
-                    setError(null)
-                  }}
-                  className="text-foreground hover:underline font-medium cursor-pointer"
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode("signin")
-                    setError(null)
-                  }}
-                  className="text-foreground hover:underline font-medium cursor-pointer"
-                >
-                  Sign in
-                </button>
-              </>
-            )}
-          </p>
+          {/* Toggle mode - only show if signup is allowed */}
+          {allowSignup ? (
+            <p className="text-center text-sm text-muted-foreground pt-2">
+              {mode === "signin" ? (
+                <>
+                  Don't have an account?{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("signup")
+                      setError(null)
+                    }}
+                    className="text-foreground hover:underline font-medium cursor-pointer"
+                  >
+                    Sign up
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("signin")
+                      setError(null)
+                    }}
+                    className="text-foreground hover:underline font-medium cursor-pointer"
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground pt-2">
+              Beta access only. Contact us to get access.
+            </p>
+          )}
         </form>
       </DialogContent>
     </Dialog>

@@ -140,6 +140,10 @@ export function WelcomeScreen() {
     router.push("/projects")
   }
 
+  const handleOnWatchDemo = () => {
+    window.open("https://youtu.be/t0zHzwyXm_Q", "_blank", "noopener,noreferrer")
+  }
+
   const features = [
     {
       title: "Natural Language Search",
@@ -303,7 +307,7 @@ export function WelcomeScreen() {
                   size="lg"
                   variant="outline"
                   className="h-12 px-7 border-neutral-800 bg-transparent text-neutral-300 hover:bg-neutral-900 hover:text-white text-sm group"
-                  onClick={() => setShowAuth(true)}
+                  onClick={handleOnWatchDemo}
                 >
                   <Play className="mr-2 h-4 w-4" />
                   Watch Demo
